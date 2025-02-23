@@ -33,7 +33,7 @@ data_transform = transforms.Compose(
      transforms.ToTensor(),
      transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
-img_path = 'TomatoYellowCurlVirus5.JPG'
+img_path = ''
 
 # 用 pillow 载入
 img_pil = Image.open(img_path)
