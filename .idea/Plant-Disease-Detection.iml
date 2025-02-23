@@ -8,6 +8,7 @@
       <excludeFolder url="file://$MODULE_DIR$/predict/ONNX" />
       <excludeFolder url="file://$MODULE_DIR$/predict/result_img" />
       <excludeFolder url="file://$MODULE_DIR$/predict/test_img" />
+      <excludeFolder url="file://$MODULE_DIR$/test" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
