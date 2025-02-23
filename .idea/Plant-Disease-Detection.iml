@@ -5,6 +5,9 @@
       <excludeFolder url="file://$MODULE_DIR$/train/runs" />
       <excludeFolder url="file://$MODULE_DIR$/data_set" />
       <excludeFolder url="file://$MODULE_DIR$/runs" />
+      <excludeFolder url="file://$MODULE_DIR$/predict/ONNX" />
+      <excludeFolder url="file://$MODULE_DIR$/predict/result_img" />
+      <excludeFolder url="file://$MODULE_DIR$/predict/test_img" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
