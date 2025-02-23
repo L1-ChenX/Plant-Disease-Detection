@@ -1,0 +1,10 @@
+1.jpg   Apple_leaf
+2.jpg   Apple_rust_leaf
+3.jpg   Apple_Scab_Leaf
+4.jpg   Bell_pepper_leaf
+5.jpg   Blueberry_leaf
+6.jpg   Cherry_leaf
+7.jpg   Corn_Gray_leaf_spot
+8.jpg   Corn_leaf_blight
+9.jpg   Corn_rust_leaf
+10.jpg   grape_leaf
