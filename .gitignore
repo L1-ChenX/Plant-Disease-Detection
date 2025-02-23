@@ -1,7 +1,17 @@
-/test/
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
 /runs/
-/train/runs/
-/data_set/
+/predict/ONNX/
 /predict/result_img/
 /predict/test_img/
-/predict/ONNX/
+/data_set/
+/predict/
+/train/runs/
+/train/save_weight/
+/test/
