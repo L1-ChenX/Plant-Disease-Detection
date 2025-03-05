@@ -11,6 +11,7 @@ import torch.utils.data
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
+from model.model import create_model
 from utils.utils import plot_class_preds, train_one_epoch, test_model, \
     read_split_data, MyDataSet
 
@@ -29,7 +30,7 @@ def main(args):
         os.getcwd(), "./.."))  # 数据集根目录
     print("data_root=" + data_root)
     train_images_path, train_images_label, \
-        test_images_path, test_images_label = read_split_data(data_root)
+        test_images_path, test_images_label = read_split_data(data_root)  # 读取数据集，默认使用增强后的数据集
     img_size = {"B0": 224,
                 "B1": 240,
                 "B2": 260,
@@ -72,8 +73,7 @@ def main(args):
     # test_dataset = datasets.ImageFolder(root=os.path.join(
     # image_path, "test"), transform=data_transform["test"])   # 测试集
     test_num = len(test_dataset)
-    print("using {} images for training, {} images fot test.".format(train_num,
-                                                                     test_num))
+    print("using {} images for training, {} images fot test.".format(train_num, test_num))
 
     batch_size = args.batch_size
 
@@ -97,8 +97,15 @@ def main(args):
     print(data.shape)
 
     # 实例化模型------------------------->>>此部分需要参赛队伍添加，可参照下方的示例代码。
+    model_name = args.model_name
+    pretrained = args.pretrained
+    if pretrained:
+        model = timm.create_model(model_name, pretrained=True, num_classes=args.num_classes).to(device)
+    else:
+        model = create_model(model_name, num_classes=args.num_classes).to(device)
+
     # model = create_model(num_classes=args.num_classes).to(device)
-    model = timm.create_model("efficientnet_b0", pretrained=True, num_classes=args.num_classes).to(device)
+    # model = timm.create_model("efficientnet_b0", pretrained=True, num_classes=args.num_classes).to(device)
 
     # 将模型写入tensorboard
     init_img = torch.zeros((1, 3, 224, 224), device=device)
@@ -173,9 +180,9 @@ def main(args):
 
         # save weights
         if best_acc < test_acc:
-            torch.save(
-                model.state_dict(),
-                ("save_weight/" + "model-b0-" + str(i) + ".pth"))  # 模型权重保存路径
+            if not os.path.exists("save_weight/" + model_name): os.makedirs("save_weight/" + model_name)
+            torch.save(model.state_dict(),
+                       ("save_weight/" + model_name + "/" + model_name + "_" + str(i) + ".pth"))  # 模型权重保存路径
             best_acc = test_acc
         i += 1
 
@@ -183,18 +190,20 @@ def main(args):
 if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_classes', type=int, default=10)  # 图像类别
+    parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
     parser.add_argument('--epochs', type=int, default=20)  # 训练次数
-    parser.add_argument('--batch-size', type=int, default=16)  # 批次大小
+    parser.add_argument('--batch-size', type=int, default=128)  # 批次大小
     parser.add_argument('--lr', type=float, default=0.001)  # 最低学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 初始学习率
 
+    parser.add_argument('--model_name', type=str, default='cnn')  # 模型名称
+    parser.add_argument('--pretrained', type=bool, default=False)
     # download model weights
     parser.add_argument('--weights', type=str, default='',
                         help='initial weights path')  # 预训练权重路径，默认不使用预训练权重
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重
-    parser.add_argument('--device', default='cuda:0',
-                        help='device id (i.e. 0 or 0,1 or cpu)')
+    parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
+
     opt = parser.parse_args()
 
     main(opt)

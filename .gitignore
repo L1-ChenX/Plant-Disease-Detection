@@ -14,3 +14,4 @@ gen
 /train/runs/
 /train/save_weight/
 /test/
+/plot_img/

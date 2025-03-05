@@ -1,22 +1,26 @@
 # -*- coding: utf-8 -*-
-import os
-import sys
 import json
+import os
 import pickle
 import random
+import sys
+
+import matplotlib.pyplot as plt
 import torch
-from tqdm import tqdm
 from PIL import Image
 from torch.utils.data import Dataset
-import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 
-def read_split_data(root: str, val_rate: float = 0.2):
+def read_split_data(root: str, val_rate: float = 0.2, augment=True):
     random.seed(4)  # 保证随机结果可复现
     assert os.path.exists(root), \
         "dataset root: {} does not exist.".format(root)
+    if augment:
+        train_path = root + r"\data_set\Plant_data\train-augmented"
+    else:
+        train_path = root + r"\data_set\Plant_data\train"
 
-    train_path = root + r"\data_set\Plant_data\train"
     test_path = root + r"\data_set\Plant_data\test"
     # 遍历文件夹，一个文件夹对应一个类别
     train_class = [cla for cla in os.listdir(
@@ -47,10 +51,10 @@ def read_split_data(root: str, val_rate: float = 0.2):
         # 遍历获取supported支持的所有文件路径
         train_images = [os.path.join(train_path,
                                      cla, i) for i in os.listdir(train_cla_path)
-                  if os.path.splitext(i)[-1] in supported]
+                        if os.path.splitext(i)[-1] in supported]
         test_images = [os.path.join(test_path,
                                     cla, i) for i in os.listdir(test_cla_path)
-                  if os.path.splitext(i)[-1] in supported]
+                       if os.path.splitext(i)[-1] in supported]
         # 排序，保证各平台顺序一致
         train_images.sort()
         test_images.sort()
@@ -189,7 +193,7 @@ def plot_class_preds(net,  # 实例化的模型
     fig = plt.figure(figsize=(num_imgs * 2.5, 3), dpi=300)
     for i in range(num_imgs):
         # 1：子图共1行，num_imgs:子图共num_imgs列，当前绘制第i+1个子图
-        ax = fig.add_subplot(1, num_imgs, i+1, xticks=[], yticks=[])
+        ax = fig.add_subplot(1, num_imgs, i + 1, xticks=[], yticks=[])
 
         # CHW -> HWC
         npimg = images[i].cpu().numpy().transpose(1, 2, 0)
@@ -214,7 +218,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
     model.train()
     loss_function = torch.nn.CrossEntropyLoss()  # 交叉熵损失函数
     accu_loss = torch.zeros(1).to(device)  # 累计损失
-    accu_num = torch.zeros(1).to(device)   # 累计预测正确的样本数
+    accu_num = torch.zeros(1).to(device)  # 累计预测正确的样本数
     optimizer.zero_grad()  # 梯度清零
 
     sample_num = 0
@@ -315,7 +319,7 @@ def test_model(model, data_loader, device, epoch):
 
     model.eval()
 
-    accu_num = torch.zeros(1).to(device)   # 累计预测正确的样本数
+    accu_num = torch.zeros(1).to(device)  # 累计预测正确的样本数
     accu_loss = torch.zeros(1).to(device)  # 累计损失
 
     sample_num = 0

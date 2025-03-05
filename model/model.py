@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-import math
 import copy
-from functools import partial
+import math
 from collections import OrderedDict
+from functools import partial
 from typing import Optional, Callable
 
+import timm
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -51,6 +52,7 @@ class DropPath(nn.Module):
     每个样本的下降路径（随机深度）（应用于残差块的主路径时）。
     "具有随机深度的深度网络", https://arxiv.org/pdf/1603.09382.pdf
     """
+
     def __init__(self, drop_prob=None):
         super(DropPath, self).__init__()
         self.drop_prob = drop_prob
@@ -87,7 +89,7 @@ class ConvBNActivation(nn.Sequential):
 
 class SqueezeExcitation(nn.Module):
     def __init__(self,
-                 input_c: int,   # block input channel
+                 input_c: int,  # block input channel
                  expand_c: int,  # block expand channel
                  squeeze_factor: int = 4):
         super(SqueezeExcitation, self).__init__()
@@ -109,14 +111,14 @@ class SqueezeExcitation(nn.Module):
 class InvertedResidualConfig:
     # kernel_size, in_channel, out_channel, exp_ratio, strides, use_SE, drop_connect_rate
     def __init__(self,
-                 kernel: int,          # 3 or 5
+                 kernel: int,  # 3 or 5
                  input_c: int,
                  out_c: int,
                  expanded_ratio: int,  # 1 or 6
-                 stride: int,          # 1 or 2
-                 use_se: bool,         # True
+                 stride: int,  # 1 or 2
+                 use_se: bool,  # True
                  drop_rate: float,
-                 index: str,           # 1a, 2a, 2b, ...
+                 index: str,  # 1a, 2a, 2b, ...
                  width_coefficient: float):
         self.input_c = self.adjust_channels(input_c, width_coefficient)
         self.kernel = kernel
@@ -303,6 +305,48 @@ class EfficientNet(nn.Module):
         return self._forward_impl(x)
 
 
+class EfficientNetWithSE(nn.Module):
+    def __init__(self, num_classes=10):
+        super(EfficientNetWithSE, self).__init__()
+        self.base_model = timm.models.efficientnet_b0(pretrained=True)
+
+        # 修改 SE 模块的 reduction
+        for layer in self.base_model.features:
+            if isinstance(layer, SEBlock):
+                layer.reduction = 8  # 将 SE reduction 由 16 改为 8，增强通道注意力
+
+        # 替换分类层
+        self.base_model.classifier[1] = nn.Linear(self.base_model.classifier[1].in_features, num_classes)
+
+    def forward(self, x):
+        return self.base_model(x)
+
+
+class SimpleCNN(nn.Module):
+    def __init__(self, num_classes=10):
+        super(SimpleCNN, self).__init__()
+
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+
+        self.fc1 = nn.Linear(64 * 28 * 28, 512)
+        self.fc2 = nn.Linear(512, num_classes)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))  # (1, 16, 112, 112)
+        x = self.pool(F.relu(self.conv2(x)))  # (1, 32, 56, 56)
+        x = self.pool(F.relu(self.conv3(x)))  # (1, 64, 28, 28)
+
+        x = x.view(x.size(0), -1)  # Flatten
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+
+        return x
+
+
 def efficientnet_b0(num_classes=10):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
@@ -365,3 +409,30 @@ def efficientnet_b7(num_classes=10):
                         depth_coefficient=3.1,
                         dropout_rate=0.5,
                         num_classes=num_classes)
+
+
+def create_model(model_name, num_classes=10):
+    if model_name == "cnn":
+        return SimpleCNN(num_classes=num_classes)
+    elif model_name == "efficientnet_b0":
+        return efficientnet_b0(num_classes=num_classes)
+    elif model_name == "efficientnet_b1":
+        return efficientnet_b1(num_classes=num_classes)
+    elif model_name == "efficientnet_b2":
+        return efficientnet_b2(num_classes=num_classes)
+    elif model_name == "efficientnet_b3":
+        return efficientnet_b3(num_classes=num_classes)
+    elif model_name == "efficientnet_b4":
+        return efficientnet_b4(num_classes=num_classes)
+    elif model_name == "efficientnet_b5":
+        return efficientnet_b5(num_classes=num_classes)
+    elif model_name == "efficientnet_b6":
+        return efficientnet_b6(num_classes=num_classes)
+    elif model_name == "efficientnet_b7":
+        return efficientnet_b7(num_classes=num_classes)
+    else:
+        raise ValueError("model_name not found.")
+
+
+if __name__ == '__main__':
+    print(create_model("cnn", 71))
