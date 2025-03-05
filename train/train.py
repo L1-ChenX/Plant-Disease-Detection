@@ -103,7 +103,6 @@ def main(args):
         model = timm.create_model(model_name, pretrained=True, num_classes=args.num_classes).to(device)
     else:
         model = create_model(model_name, num_classes=args.num_classes).to(device)
-
     # model = create_model(num_classes=args.num_classes).to(device)
     # model = timm.create_model("efficientnet_b0", pretrained=True, num_classes=args.num_classes).to(device)
 
@@ -192,11 +191,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
     parser.add_argument('--epochs', type=int, default=20)  # 训练次数
-    parser.add_argument('--batch-size', type=int, default=128)  # 批次大小
+    parser.add_argument('--batch-size', type=int, default=32)  # 批次大小
     parser.add_argument('--lr', type=float, default=0.001)  # 最低学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 初始学习率
 
-    parser.add_argument('--model_name', type=str, default='cnn')  # 模型名称
+    parser.add_argument('--model_name', type=str, default='efficientnet')  # 模型名称
     parser.add_argument('--pretrained', type=bool, default=False)
     # download model weights
     parser.add_argument('--weights', type=str, default='',

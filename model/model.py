@@ -5,7 +5,6 @@ from collections import OrderedDict
 from functools import partial
 from typing import Optional, Callable
 
-import timm
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -91,16 +90,19 @@ class SqueezeExcitation(nn.Module):
     def __init__(self,
                  input_c: int,  # block input channel
                  expand_c: int,  # block expand channel
-                 squeeze_factor: int = 4):
+                 squeeze_factor: int = 4,
+                 activation_layer: Optional[Callable[..., nn.Module]] = nn.SiLU):
         super(SqueezeExcitation, self).__init__()
         squeeze_c = input_c // squeeze_factor
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)  # alias F.adaptive_avg_pool2d(x, output_size=(1, 1))
+
         self.fc1 = nn.Conv2d(expand_c, squeeze_c, 1)
-        self.ac1 = nn.SiLU()  # alias Swish
+        self.ac1 = activation_layer()  # alias Swish
         self.fc2 = nn.Conv2d(squeeze_c, expand_c, 1)
         self.ac2 = nn.Sigmoid()
 
     def forward(self, x: Tensor) -> Tensor:
-        scale = F.adaptive_avg_pool2d(x, output_size=(1, 1))
+        scale = self.global_avg_pool(x)
         scale = self.fc1(scale)
         scale = self.ac1(scale)
         scale = self.fc2(scale)
@@ -137,7 +139,9 @@ class InvertedResidualConfig:
 class InvertedResidual(nn.Module):
     def __init__(self,
                  cnf: InvertedResidualConfig,
-                 norm_layer: Callable[..., nn.Module]):
+                 norm_layer: Callable[..., nn.Module],
+                 squeeze_factor: int = 4,
+                 activation_layer: Callable[..., nn.Module] = nn.SiLU):
         super(InvertedResidual, self).__init__()
 
         if cnf.stride not in [1, 2]:
@@ -146,7 +150,7 @@ class InvertedResidual(nn.Module):
         self.use_res_connect = (cnf.stride == 1 and cnf.input_c == cnf.out_c)
 
         layers = OrderedDict()
-        activation_layer = nn.SiLU  # alias Swish
+        # activation_layer = nn.SiLU  # alias Swish
 
         # expand
         if cnf.expanded_c != cnf.input_c:
@@ -166,8 +170,8 @@ class InvertedResidual(nn.Module):
                                                   activation_layer=activation_layer)})
 
         if cnf.use_se:
-            layers.update({"se": SqueezeExcitation(cnf.input_c,
-                                                   cnf.expanded_c)})
+            layers.update({"se": SqueezeExcitation(cnf.input_c, cnf.expanded_c, squeeze_factor=squeeze_factor,
+                                                   activation_layer=activation_layer)})
 
         # project
         layers.update({"project_conv": ConvBNActivation(cnf.expanded_c,
@@ -200,10 +204,12 @@ class EfficientNet(nn.Module):
                  width_coefficient: float,
                  depth_coefficient: float,
                  num_classes: int = 10,
+                 squeeze_factor: int = 4,
                  dropout_rate: float = 0.2,
                  drop_connect_rate: float = 0.2,
+                 activation_layer: Optional[Callable[..., nn.Module]] = nn.SiLU,
                  block: Optional[Callable[..., nn.Module]] = None,
-                 norm_layer: Optional[Callable[..., nn.Module]] = None
+                 norm_layer: Optional[Callable[..., nn.Module]] = None,
                  ):
         super(EfficientNet, self).__init__()
 
@@ -257,11 +263,12 @@ class EfficientNet(nn.Module):
                                                      out_planes=adjust_channels(32),
                                                      kernel_size=3,
                                                      stride=2,
-                                                     norm_layer=norm_layer)})
+                                                     norm_layer=norm_layer,
+                                                     activation_layer=activation_layer)})
 
         # building inverted residual blocks
         for cnf in inverted_residual_setting:
-            layers.update({cnf.index: block(cnf, norm_layer)})
+            layers.update({cnf.index: block(cnf, norm_layer, squeeze_factor, activation_layer)})
 
         # build top
         last_conv_input_c = inverted_residual_setting[-1].out_c
@@ -269,16 +276,24 @@ class EfficientNet(nn.Module):
         layers.update({"top": ConvBNActivation(in_planes=last_conv_input_c,
                                                out_planes=last_conv_output_c,
                                                kernel_size=1,
-                                               norm_layer=norm_layer)})
+                                               norm_layer=norm_layer,
+                                               activation_layer=activation_layer)})
 
         self.features = nn.Sequential(layers)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
 
-        classifier = []
-        if dropout_rate > 0:
-            classifier.append(nn.Dropout(p=dropout_rate, inplace=True))
-        classifier.append(nn.Linear(last_conv_output_c, num_classes))
-        self.classifier = nn.Sequential(*classifier)
+        # classifier = []
+        # if dropout_rate > 0:
+        #     classifier.append(nn.Dropout(p=dropout_rate, inplace=True))
+        # classifier.append(nn.Linear(last_conv_output_c, num_classes))
+        # self.classifier = nn.Sequential(*classifier)
+
+        self.classifier = nn.Sequential(
+            nn.Dropout(p=dropout_rate),
+            nn.Linear(last_conv_output_c, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, num_classes)
+        )
 
         # initial weights
         for m in self.modules():
@@ -303,23 +318,6 @@ class EfficientNet(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
-
-
-class EfficientNetWithSE(nn.Module):
-    def __init__(self, num_classes=10):
-        super(EfficientNetWithSE, self).__init__()
-        self.base_model = timm.models.efficientnet_b0(pretrained=True)
-
-        # 修改 SE 模块的 reduction
-        for layer in self.base_model.features:
-            if isinstance(layer, SEBlock):
-                layer.reduction = 8  # 将 SE reduction 由 16 改为 8，增强通道注意力
-
-        # 替换分类层
-        self.base_model.classifier[1] = nn.Linear(self.base_model.classifier[1].in_features, num_classes)
-
-    def forward(self, x):
-        return self.base_model(x)
 
 
 class SimpleCNN(nn.Module):
@@ -347,12 +345,14 @@ class SimpleCNN(nn.Module):
         return x
 
 
-def efficientnet_b0(num_classes=10):
+def efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.SiLU):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
                         depth_coefficient=1.0,
                         dropout_rate=0.2,
-                        num_classes=num_classes)
+                        num_classes=num_classes,
+                        squeeze_factor=squeeze_factor,
+                        activation_layer=activation_layer)
 
 
 def efficientnet_b1(num_classes=10):
@@ -414,25 +414,16 @@ def efficientnet_b7(num_classes=10):
 def create_model(model_name, num_classes=10):
     if model_name == "cnn":
         return SimpleCNN(num_classes=num_classes)
-    elif model_name == "efficientnet_b0":
+    elif model_name == "efficientnet":
         return efficientnet_b0(num_classes=num_classes)
-    elif model_name == "efficientnet_b1":
-        return efficientnet_b1(num_classes=num_classes)
-    elif model_name == "efficientnet_b2":
-        return efficientnet_b2(num_classes=num_classes)
-    elif model_name == "efficientnet_b3":
-        return efficientnet_b3(num_classes=num_classes)
-    elif model_name == "efficientnet_b4":
-        return efficientnet_b4(num_classes=num_classes)
-    elif model_name == "efficientnet_b5":
-        return efficientnet_b5(num_classes=num_classes)
-    elif model_name == "efficientnet_b6":
-        return efficientnet_b6(num_classes=num_classes)
-    elif model_name == "efficientnet_b7":
-        return efficientnet_b7(num_classes=num_classes)
+    elif model_name == "modified":
+        return efficientnet_b0(num_classes=num_classes, squeeze_factor=4, activation_layer=nn.Mish)
     else:
         raise ValueError("model_name not found.")
 
 
 if __name__ == '__main__':
-    print(create_model("cnn", 71))
+    # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
+    model = create_model("efficientnet", num_classes=10)
+    x = torch.randn(1, 3, 224, 224)
+    print(model(x).shape)
