@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+import sys
+
+[sys.path.append(i) for i in ['.', '..']]
+
 import argparse
 import math
 import os
@@ -12,8 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
 from model.model import create_model
-from utils.utils import plot_class_preds, train_one_epoch, test_model, \
-    read_split_data, MyDataSet
+from utils.utils import plot_class_preds, train_one_epoch, test_model, read_split_data, MyDataSet
 
 
 def main(args):
@@ -24,10 +27,8 @@ def main(args):
           'view at http://localhost:6006/')
     tb_writer = SummaryWriter(log_dir="./runs")
 
-    # 定义训练以及测试时的预处理方法  ------------------------->>>
-    # 此部分需要参赛队伍添加，可参照下方的示例代码。
-    data_root = os.path.abspath(os.path.join(
-        os.getcwd(), "./.."))  # 数据集根目录
+    # 定义训练以及测试时的预处理方法
+    data_root = os.path.abspath(os.path.join(os.getcwd(), "./.."))  # 数据集根目录
     print("data_root=" + data_root)
     train_images_path, train_images_label, \
         test_images_path, test_images_label = read_split_data(data_root)  # 读取数据集，默认使用增强后的数据集
@@ -65,8 +66,7 @@ def main(args):
                              images_class=test_images_label,
                              transform=data_transform["test"])
     image_path = os.path.join(data_root, "data_set", "Plant_data")  # 数据集目录
-    assert os.path.exists(image_path
-                          ), "{} path does not exist.".format(image_path)
+    assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
     # train_dataset = datasets.ImageFolder(root=os.path.join(
     # image_path, "train"),transform=data_transform["train"])    # 训练集
     train_num = len(train_dataset)
@@ -77,21 +77,20 @@ def main(args):
 
     batch_size = args.batch_size
 
-    # 计算使用num_workers的数量
-    nw = min([os.cpu_count(),
-              batch_size if batch_size > 1 else 0, 8])  # number of workers
-    print('Using {} dataloader workers every process'.format(nw))
+    # 使用num_workers的数量
+    num_workers = args.num_workers
+    print('Using {} dataloader workers every process'.format(num_workers))
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=batch_size,
                                                shuffle=True,
                                                pin_memory=True,
-                                               num_workers=0)
+                                               num_workers=num_workers)
 
     test_loader = torch.utils.data.DataLoader(test_dataset,
                                               batch_size=batch_size,
                                               shuffle=False,
                                               pin_memory=True,
-                                              num_workers=0)
+                                              num_workers=num_workers)
 
     data, target = next(iter(train_loader))
     print(data.shape)
@@ -114,8 +113,7 @@ def main(args):
     if args.weights != "":
         if os.path.exists(args.weights):
             weights_dict = torch.load(args.weights, map_location=device)
-            load_weights_dict = {k: v for k, v in weights_dict.items()
-                                 if model.state_dict()[k].numel() == v.numel()}
+            load_weights_dict = {k: v for k, v in weights_dict.items() if model.state_dict()[k].numel() == v.numel()}
             print(model.load_state_dict(load_weights_dict, strict=False))
         else:
             raise FileNotFoundError(
@@ -172,16 +170,18 @@ def main(args):
                                transform=data_transform["test"],
                                num_plot=10,
                                device=device)
+
         if fig is not None:
             tb_writer.add_figure("predictions vs. actual",
                                  figure=fig,
                                  global_step=epoch)
-
+        # 定义模型保存路径
+        save_dir = os.path.join("save_weight", model_name)
         # save weights
         if best_acc < test_acc:
-            if not os.path.exists("save_weight/" + model_name): os.makedirs("save_weight/" + model_name)
-            torch.save(model.state_dict(),
-                       ("save_weight/" + model_name + "/" + model_name + "_" + str(i) + ".pth"))  # 模型权重保存路径
+            os.makedirs(save_dir, exist_ok=True)  # 确保目录存在
+            save_path = os.path.join(save_dir, f"{model_name}_{i}.pth")
+            torch.save(model.state_dict(), save_path)  # 保存模型权重
             best_acc = test_acc
         i += 1
 
@@ -190,16 +190,17 @@ if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
-    parser.add_argument('--epochs', type=int, default=20)  # 训练次数
-    parser.add_argument('--batch-size', type=int, default=32)  # 批次大小
+    parser.add_argument('--epochs', type=int, default=100)  # 训练次数
+    parser.add_argument('--batch-size', type=int, default=128)  # 批次大小
+    parser.add_argument('--num_workers', type=int, default=0)  # 使用线程数目
     parser.add_argument('--lr', type=float, default=0.001)  # 最低学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 初始学习率
 
-    parser.add_argument('--model_name', type=str, default='efficientnet')  # 模型名称
+    parser.add_argument('--model_name', type=str, default='cnn')  # 模型名称 cnn efficientnet_b0 modified
     parser.add_argument('--pretrained', type=bool, default=False)
     # download model weights
-    parser.add_argument('--weights', type=str, default='',
-                        help='initial weights path')  # 预训练权重路径，默认不使用预训练权重
+    parser.add_argument('--weights', type=str, default='./save_weight/cnn/cnn_19.pth',
+                        help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重
     parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
 

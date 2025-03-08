@@ -14,23 +14,25 @@ def get_md5_hash(image_path):
         return hashlib.md5(f.read()).hexdigest()
 
 
-def get_phash(image_path):
-    """ 计算图片的感知哈希（pHash），用于检测相似图片 """
-    try:
-        with Image.open(image_path) as img:
-            return imagehash.phash(img)
-    except Exception as e:
-        print(f"处理失败 {image_path}: {e}")
-        return None
+def get_phash(file_path):
+    """ 计算图片的感知哈希（pHash） """
+    with Image.open(file_path) as img:
+        return imagehash.phash(img)
+
+
+def ensure_empty_dir(directory):
+    """ 确保目录存在且为空 """
+    if os.path.exists(directory):
+        shutil.rmtree(directory)  # 删除整个目录
+    os.makedirs(directory)  # 重新创建
 
 
 def deduplicate_and_copy_images(base_dir, phash_threshold=5):
     """ 检测重复和相似图片，并复制保留的图片到新文件夹 """
+    print("检测重复和相似图片")
     input_dir = os.path.join(base_dir, "data")
     output_dir = os.path.join(base_dir, "filtered")
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    ensure_empty_dir(output_dir)
 
     hash_dict = {}  # 记录已保存的图片（MD5 哈希）
     phash_dict = {}  # 记录已保存的图片（pHash）
@@ -76,10 +78,10 @@ def deduplicate_and_copy_images(base_dir, phash_threshold=5):
 
 def undersample_majority_classes(base_dir, target_count=1000):
     """ 通过随机删除图片，减少大类别样本，使其不超过 target_count """
+    print("欠采样大类别")
     input_dir = os.path.join(base_dir, "data")
     output_dir = os.path.join(base_dir, "under-sampled")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    ensure_empty_dir(output_dir)
 
     for category in os.listdir(input_dir):
         category_path = os.path.join(input_dir, category)
@@ -109,13 +111,15 @@ def undersample_majority_classes(base_dir, target_count=1000):
 
 
 def split_dataset(base_dir, train_ratio):
+    """ 将数据集划分为训练集和测试集 """
+    print("划分训练集和测试集")
     data_dir = os.path.join(base_dir, 'under-sampled')
     train_dir = os.path.join(base_dir, 'train')
     test_dir = os.path.join(base_dir, 'test')
 
     # 创建训练集和测试集目录
-    os.makedirs(train_dir, exist_ok=True)
-    os.makedirs(test_dir, exist_ok=True)
+    ensure_empty_dir(train_dir)
+    ensure_empty_dir(test_dir)
 
     # 遍历每个类别文件夹
     for category in os.listdir(data_dir):
@@ -150,10 +154,11 @@ def split_dataset(base_dir, train_ratio):
 
 def augment_images(base_dir, target_count):
     """ 对输入目录的所有类别文件夹中的图片进行数据增强，并保存到新目录 """
+    print("数据增强")
+
     input_dir = os.path.join(base_dir, "train")
     output_dir = os.path.join(base_dir, "train-augmented")
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    ensure_empty_dir(output_dir)
 
     # 遍历所有类别文件夹
     for category in os.listdir(input_dir):
@@ -214,12 +219,12 @@ def augment_images(base_dir, target_count):
 
 
 if __name__ == "__main__":
-    base_directory = r"D:\POJ_PyTorch\Plant-Disease-Detection\data_set\Plant_data"
+    base_directory = r"../data_set/Plant_data"
 
     # deduplicate_and_copy_images(base_directory, phash_threshold=5)
 
-    # undersample_majority_classes(base_directory, target_count=2000)
+    undersample_majority_classes(base_directory, target_count=2000)
 
-    # split_dataset(base_directory, train_ratio=0.8)
+    split_dataset(base_directory, train_ratio=0.8)
 
-    # augment_images(base_directory, target_count=1600)
+    augment_images(base_directory, target_count=1600)

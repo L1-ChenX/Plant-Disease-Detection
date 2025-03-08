@@ -5,6 +5,7 @@ from collections import OrderedDict
 from functools import partial
 from typing import Optional, Callable
 
+import timm
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -414,7 +415,7 @@ def efficientnet_b7(num_classes=10):
 def create_model(model_name, num_classes=10):
     if model_name == "cnn":
         return SimpleCNN(num_classes=num_classes)
-    elif model_name == "efficientnet":
+    elif model_name == "efficientnet_b0":
         return efficientnet_b0(num_classes=num_classes)
     elif model_name == "modified":
         return efficientnet_b0(num_classes=num_classes, squeeze_factor=4, activation_layer=nn.Mish)
@@ -424,6 +425,6 @@ def create_model(model_name, num_classes=10):
 
 if __name__ == '__main__':
     # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
-    model = create_model("efficientnet", num_classes=10)
-    x = torch.randn(1, 3, 224, 224)
-    print(model(x).shape)
+    # model = create_model("efficientnet", num_classes=71)
+    model = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
+    print(model)

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 import json
 import os
 import pickle
@@ -14,27 +15,26 @@ from tqdm import tqdm
 
 def read_split_data(root: str, val_rate: float = 0.2, augment=True):
     random.seed(4)  # 保证随机结果可复现
-    assert os.path.exists(root), \
-        "dataset root: {} does not exist.".format(root)
-    if augment:
-        train_path = root + r"\data_set\Plant_data\train-augmented"
-    else:
-        train_path = root + r"\data_set\Plant_data\train"
+    assert os.path.exists(root), "dataset root: {} does not exist.".format(root)
 
-    test_path = root + r"\data_set\Plant_data\test"
+    dataset_path = os.path.join(root, "data_set", "Plant_data")
+
+    if augment:
+        train_path = os.path.join(dataset_path, "train-augmented")
+    else:
+        train_path = os.path.join(dataset_path, "train")
+
+    test_path = os.path.join(dataset_path, "test")
     # 遍历文件夹，一个文件夹对应一个类别
-    train_class = [cla for cla in os.listdir(
-        train_path) if os.path.isdir(os.path.join(train_path, cla))]
-    test_class = [cla for cla in os.listdir(
-        test_path) if os.path.isdir(os.path.join(test_path, cla))]
+    train_class = [cla for cla in os.listdir(train_path) if os.path.isdir(os.path.join(train_path, cla))]
+    test_class = [cla for cla in os.listdir(test_path) if os.path.isdir(os.path.join(test_path, cla))]
     # 排序，保证各平台顺序一致
     train_class.sort()
     test_class.sort()
     # 生成类别名称以及对应的数字索引
     train_class_indices = dict((k, v) for v, k in enumerate(train_class))
     test_class_indices = dict((k, v) for v, k in enumerate(test_class))
-    json_str = json.dumps(
-        dict((val, key) for key, val in train_class_indices.items()), indent=4)
+    json_str = json.dumps(dict((val, key) for key, val in train_class_indices.items()), indent=4)
     with open('class_indices.json', 'w') as json_file:
         json_file.write(json_str)
 
@@ -49,11 +49,9 @@ def read_split_data(root: str, val_rate: float = 0.2, augment=True):
         train_cla_path = os.path.join(train_path, cla)
         test_cla_path = os.path.join(test_path, cla)
         # 遍历获取supported支持的所有文件路径
-        train_images = [os.path.join(train_path,
-                                     cla, i) for i in os.listdir(train_cla_path)
+        train_images = [os.path.join(train_path, cla, i) for i in os.listdir(train_cla_path)
                         if os.path.splitext(i)[-1] in supported]
-        test_images = [os.path.join(test_path,
-                                    cla, i) for i in os.listdir(test_cla_path)
+        test_images = [os.path.join(test_path, cla, i) for i in os.listdir(test_cla_path)
                        if os.path.splitext(i)[-1] in supported]
         # 排序，保证各平台顺序一致
         train_images.sort()
@@ -190,25 +188,30 @@ def plot_class_preds(net,  # 实例化的模型
         preds = preds.cpu().numpy()
 
     # width, height
-    fig = plt.figure(figsize=(num_imgs * 2.5, 3), dpi=300)
-    for i in range(num_imgs):
-        # 1：子图共1行，num_imgs:子图共num_imgs列，当前绘制第i+1个子图
-        ax = fig.add_subplot(1, num_imgs, i + 1, xticks=[], yticks=[])
+    # fig = plt.figure(figsize=(num_imgs * 2.5, 3), dpi=300)
+    rows, cols = 2, 5
+    fig, axes = plt.subplots(rows, cols, figsize=(18, 8), dpi=200)
+    fig.subplots_adjust(wspace=0.5, hspace=0.4)  # 调整水平和垂直间距
+
+    for i, ax in enumerate(axes.flat):
+        if i >= num_imgs:
+            ax.axis("off")  # 隐藏多余的子图
+            continue
 
         # CHW -> HWC
         npimg = images[i].cpu().numpy().transpose(1, 2, 0)
 
-        # 将图像还原至标准化之前
-        # mean:[0.485, 0.456, 0.406], std:[0.229, 0.224, 0.225]
+        # 还原标准化
         npimg = (npimg * [0.229, 0.224, 0.225] + [0.485, 0.456, 0.406]) * 255
-        plt.imshow(npimg.astype('uint8'))
+        ax.imshow(npimg.astype('uint8'))
+        ax.axis("off")  # 关闭坐标轴
 
         title = "{}, {:.2f}%\n(label: {})".format(
-            flower_class[str(preds[i])],  # predict class
-            probs[i] * 100,  # predict probability
-            flower_class[str(labels[i])]  # true class
+            flower_class[str(preds[i])],
+            probs[i] * 100,
+            flower_class[str(labels[i])]
         )
-        ax.set_title(title,
+        ax.set_title(title, fontsize=12,
                      color=("green" if preds[i] == labels[i] else "red"))
 
     return fig
