@@ -5,9 +5,9 @@ from collections import OrderedDict
 from functools import partial
 from typing import Optional, Callable
 
-import timm
 import torch
 import torch.nn as nn
+import torchvision
 from torch import Tensor
 from torch.nn import functional as F
 
@@ -211,6 +211,7 @@ class EfficientNet(nn.Module):
                  activation_layer: Optional[Callable[..., nn.Module]] = nn.SiLU,
                  block: Optional[Callable[..., nn.Module]] = None,
                  norm_layer: Optional[Callable[..., nn.Module]] = None,
+                 classifier_modify: bool = False,
                  ):
         super(EfficientNet, self).__init__()
 
@@ -283,19 +284,18 @@ class EfficientNet(nn.Module):
         self.features = nn.Sequential(layers)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
 
-        # classifier = []
-        # if dropout_rate > 0:
-        #     classifier.append(nn.Dropout(p=dropout_rate, inplace=True))
-        # classifier.append(nn.Linear(last_conv_output_c, num_classes))
-        # self.classifier = nn.Sequential(*classifier)
+        classifier = []
+        if dropout_rate > 0:
+            classifier.append(nn.Dropout(p=dropout_rate, inplace=True))
 
-        self.classifier = nn.Sequential(
-            nn.Dropout(p=dropout_rate),
-            nn.Linear(last_conv_output_c, 512),
-            nn.ReLU(inplace=True),
-            nn.Linear(512, num_classes)
-        )
+        if not classifier_modify:
+            classifier.append(nn.Linear(last_conv_output_c, num_classes))
+        else:
+            classifier.append(nn.Linear(last_conv_output_c, 512))
+            classifier.append(nn.ReLU(inplace=True))
+            classifier.append(nn.Linear(512, num_classes))
 
+        self.classifier = nn.Sequential(*classifier)
         # initial weights
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -346,14 +346,15 @@ class SimpleCNN(nn.Module):
         return x
 
 
-def efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.SiLU):
+def efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.SiLU, classifier_modify=False):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
                         depth_coefficient=1.0,
                         dropout_rate=0.2,
                         num_classes=num_classes,
                         squeeze_factor=squeeze_factor,
-                        activation_layer=activation_layer)
+                        activation_layer=activation_layer,
+                        classifier_modify=classifier_modify)
 
 
 def efficientnet_b1(num_classes=10):
@@ -418,7 +419,13 @@ def create_model(model_name, num_classes=10):
     elif model_name == "efficientnet_b0":
         return efficientnet_b0(num_classes=num_classes)
     elif model_name == "modified":
-        return efficientnet_b0(num_classes=num_classes, squeeze_factor=4, activation_layer=nn.Mish)
+        return efficientnet_b0(num_classes=num_classes, squeeze_factor=2, activation_layer=nn.Mish,
+                               classifier_modify=True)
+    elif model_name == 'pretrained':
+        model_pretrained = torchvision.models.efficientnet_b0(
+            weights=torchvision.models.EfficientNet_B0_Weights.DEFAULT)
+        model_pretrained.classifier[1] = nn.Linear(model_pretrained.classifier[1].in_features, num_classes)
+        return model_pretrained
     else:
         raise ValueError("model_name not found.")
 
@@ -426,5 +433,8 @@ def create_model(model_name, num_classes=10):
 if __name__ == '__main__':
     # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
     # model = create_model("efficientnet", num_classes=71)
-    model = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
+    # model = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
+    model = torchvision.models.efficientnet_b0(weights=torchvision.models.EfficientNet_B0_Weights.DEFAULT,
+                                               progress=True)
+    model.classifier[1] = nn.Linear(model.classifier[1].in_features, 71)
     print(model)

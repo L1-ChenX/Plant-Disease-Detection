@@ -42,6 +42,7 @@ def test_acc(model, data_transform, device, batch_size=64):
     data_root = os.path.abspath(os.path.join(os.getcwd(), "./.."))  # 数据集根目录
     train_images_path, train_images_label, \
         test_images_path, test_images_label = read_split_data(data_root)  # 读取数据集，默认使用增强后的数据集
+
     test_dataset = MyDataSet(images_path=test_images_path,
                              images_class=test_images_label,
                              transform=data_transform)

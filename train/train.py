@@ -25,10 +25,16 @@ def main(args):
     print(args)
     print('Start Tensorboard with "tensorboard --logdir=runs", '
           'view at http://localhost:6006/')
-    tb_writer = SummaryWriter(log_dir="./runs")
+    log_dir = os.path.join("./runs", args.model_name)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    tb_writer = SummaryWriter(log_dir=log_dir)
 
     # 定义训练以及测试时的预处理方法
-    data_root = os.path.abspath(os.path.join(os.getcwd(), "./.."))  # 数据集根目录
+    if args.cloud:
+        data_root = r'/home/featurize/data'
+    else:
+        data_root = os.path.abspath(os.path.join(os.getcwd(), "./.."))  # 数据集根目录
     print("data_root=" + data_root)
     train_images_path, train_images_label, \
         test_images_path, test_images_label = read_split_data(data_root)  # 读取数据集，默认使用增强后的数据集
@@ -129,10 +135,8 @@ def main(args):
                 print("training {}".format(name))
 
     pg = [p for p in model.parameters() if p.requires_grad]
-    optimizer = optim.SGD(pg, lr=args.lr, momentum=0.9,
-                          weight_decay=1E-4)  # 优化器
-    lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2
-                    ) * (1 - args.lrf) + args.lrf  # cosine
+    optimizer = optim.SGD(pg, lr=args.lr, momentum=0.9, weight_decay=1E-4)  # 优化器
+    lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf  # cosine
     scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
 
     best_acc = 0.
@@ -191,18 +195,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
-    parser.add_argument('--batch-size', type=int, default=128)  # 批次大小
-    parser.add_argument('--num_workers', type=int, default=0)  # 使用线程数目
+    parser.add_argument('--batch_size', type=int, default=256)  # 批次大小
+    parser.add_argument('--num_workers', type=int, default=10)  # 使用线程数目
     parser.add_argument('--lr', type=float, default=0.001)  # 最低学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 初始学习率
 
-    parser.add_argument('--model_name', type=str, default='cnn')  # 模型名称 cnn efficientnet_b0 modified
+    parser.add_argument('--model_name', type=str, default='modified')  # 模型名称 cnn efficientnet_b0 modified pretrained
     parser.add_argument('--pretrained', type=bool, default=False)
     # download model weights
-    parser.add_argument('--weights', type=str, default='./save_weight/cnn/cnn_19.pth',
+    parser.add_argument('--weights', type=str, default='',
                         help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重
     parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
+    parser.add_argument('--cloud', type=bool, default=False)
 
     opt = parser.parse_args()
 
