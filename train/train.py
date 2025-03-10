@@ -7,7 +7,6 @@ import argparse
 import math
 import os
 
-import timm
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
@@ -50,7 +49,8 @@ def main(args):
 
     data_transform = {
         "train": transforms.Compose([
-            transforms.RandomResizedCrop(img_size[num_model]),
+            transforms.Resize(img_size[num_model] + 32),  # 先调整尺寸
+            transforms.RandomCrop(img_size[num_model]),  # 让裁剪范围更合理
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406],
@@ -103,11 +103,8 @@ def main(args):
 
     # 实例化模型------------------------->>>此部分需要参赛队伍添加，可参照下方的示例代码。
     model_name = args.model_name
-    pretrained = args.pretrained
-    if pretrained:
-        model = timm.create_model(model_name, pretrained=True, num_classes=args.num_classes).to(device)
-    else:
-        model = create_model(model_name, num_classes=args.num_classes).to(device)
+    model = create_model(model_name, num_classes=args.num_classes).to(device)
+
     # model = create_model(num_classes=args.num_classes).to(device)
     # model = timm.create_model("efficientnet_b0", pretrained=True, num_classes=args.num_classes).to(device)
 
@@ -143,12 +140,14 @@ def main(args):
     i = 0
     for epoch in range(args.epochs):
         torch.cuda.empty_cache()
+
         # train
         train_loss, train_acc = train_one_epoch(model=model,
                                                 optimizer=optimizer,
                                                 data_loader=train_loader,
                                                 device=device,
                                                 epoch=epoch)
+
         # update learning rate
         scheduler.step()
 
@@ -193,15 +192,14 @@ def main(args):
 if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
+    parser.add_argument('--num_classes', type=int, default=24)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
     parser.add_argument('--batch_size', type=int, default=256)  # 批次大小
     parser.add_argument('--num_workers', type=int, default=10)  # 使用线程数目
-    parser.add_argument('--lr', type=float, default=0.001)  # 最低学习率
-    parser.add_argument('--lrf', type=float, default=0.01)  # 初始学习率
+    parser.add_argument('--lr', type=float, default=0.001)  # 初始学习率
+    parser.add_argument('--lrf', type=float, default=0.01)  # 最终学习率比例
 
     parser.add_argument('--model_name', type=str, default='modified')  # 模型名称 cnn efficientnet_b0 modified pretrained
-    parser.add_argument('--pretrained', type=bool, default=False)
     # download model weights
     parser.add_argument('--weights', type=str, default='',
                         help='initial weights path')  # 预训练权重路径

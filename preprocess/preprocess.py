@@ -172,9 +172,8 @@ def augment_images(base_dir, target_count):
             images = os.listdir(category_path)
             current_count = len(images)
             # print(f"对类别 '{category}' 进行数据增强, 处理 {current_count} 张图片.")
-            augmented_count = min(target_count, current_count * 5)  # 限制最大增强数量
-            if current_count < augmented_count:
-                for i in range(augmented_count - current_count):
+            if current_count < target_count:
+                for i in range(target_count - current_count):
                     img_name = random.choice(images)
                     img_path = os.path.join(category_path, img_name)
                     try:
@@ -184,15 +183,12 @@ def augment_images(base_dir, target_count):
 
                             # 定义数据增强变换
                             transform = transforms.Compose([
-                                transforms.RandomRotation(30),  # 随机旋转 -30~30度
-                                transforms.RandomHorizontalFlip(),  # 随机水平翻转
-                                transforms.RandomVerticalFlip(),  # 随机垂直翻转
-                                transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),  # 随机裁剪并调整大小
+                                transforms.RandomRotation(30),  # 随机旋转
                                 transforms.ColorJitter(
-                                    brightness=(0.8, 1.2),  # 限制亮度变化范围
-                                    contrast=(0.8, 1.2),  # 限制对比度变化范围
-                                    saturation=(0.8, 1.2),  # 限制饱和度变化范围
-                                    hue=(-0.05, 0.05)  # 适当减少色调变化
+                                    brightness=(0.9, 1.1),  # 限制亮度变化范围
+                                    contrast=(0.9, 1.1),  # 限制对比度变化范围
+                                    saturation=(0.9, 1.1),  # 限制饱和度变化范围
+                                    hue=(-0.02, 0.02)  # 适当减少色调变化
                                 ),
                             ])
 
@@ -215,7 +211,7 @@ def augment_images(base_dir, target_count):
                 shutil.copy2(src_path, dst_path)
 
             print(
-                f"类别 '{category}': {current_count} 张图片，共生成 {augmented_count - current_count} 张图片，合计 {len(os.listdir(output_category_path))} 张图片.")
+                f"类别 '{category}': {current_count} 张图片，共生成 {target_count - current_count} 张图片，合计 {len(os.listdir(output_category_path))} 张图片.")
 
 
 if __name__ == "__main__":
