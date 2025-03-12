@@ -14,7 +14,7 @@ import torch.utils.data
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 
-from model.model import create_model
+from models.model import create_model
 from utils.utils import plot_class_preds, train_one_epoch, test_model, read_split_data, MyDataSet
 
 
@@ -105,9 +105,6 @@ def main(args):
     model_name = args.model_name
     model = create_model(model_name, num_classes=args.num_classes).to(device)
 
-    # model = create_model(num_classes=args.num_classes).to(device)
-    # model = timm.create_model("efficientnet_b0", pretrained=True, num_classes=args.num_classes).to(device)
-
     # 将模型写入tensorboard
     init_img = torch.zeros((1, 3, 224, 224), device=device)
     tb_writer.add_graph(model, init_img)  # 添加网络的结构图
@@ -194,13 +191,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=24)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
-    parser.add_argument('--batch_size', type=int, default=256)  # 批次大小
+    parser.add_argument('--batch_size', type=int, default=64)  # 批次大小
     parser.add_argument('--num_workers', type=int, default=10)  # 使用线程数目
     parser.add_argument('--lr', type=float, default=0.001)  # 初始学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 最终学习率比例
 
-    parser.add_argument('--model_name', type=str, default='modified')  # 模型名称 cnn efficientnet_b0 modified pretrained
-    # download model weights
+    parser.add_argument('--model_name', type=str, default='cnn')  # cnn efficientnet_b0 resnet50
+    # download models weights
     parser.add_argument('--weights', type=str, default='',
                         help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重

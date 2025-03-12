@@ -7,9 +7,7 @@ from typing import Optional, Callable
 
 import torch
 import torch.nn as nn
-import torchvision
 from torch import Tensor
-from torch.nn import functional as F
 
 
 def _make_divisible(ch, divisor=8, min_ch=None):
@@ -321,31 +319,6 @@ class EfficientNet(nn.Module):
         return self._forward_impl(x)
 
 
-class SimpleCNN(nn.Module):
-    def __init__(self, num_classes=10):
-        super(SimpleCNN, self).__init__()
-
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=16, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
-
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
-
-        self.fc1 = nn.Linear(64 * 28 * 28, 512)
-        self.fc2 = nn.Linear(512, num_classes)
-
-    def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))  # (1, 16, 112, 112)
-        x = self.pool(F.relu(self.conv2(x)))  # (1, 32, 56, 56)
-        x = self.pool(F.relu(self.conv3(x)))  # (1, 64, 28, 28)
-
-        x = x.view(x.size(0), -1)  # Flatten
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-
-        return x
-
-
 def efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.SiLU, classifier_modify=False):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
@@ -411,30 +384,3 @@ def efficientnet_b7(num_classes=10):
                         depth_coefficient=3.1,
                         dropout_rate=0.5,
                         num_classes=num_classes)
-
-
-def create_model(model_name, num_classes=10):
-    if model_name == "cnn":
-        return SimpleCNN(num_classes=num_classes)
-    elif model_name == "efficientnet_b0":
-        return efficientnet_b0(num_classes=num_classes)
-    elif model_name == "modified":
-        return efficientnet_b0(num_classes=num_classes, squeeze_factor=2, activation_layer=nn.Mish,
-                               classifier_modify=True)
-    elif model_name == 'pretrained':
-        model_pretrained = torchvision.models.efficientnet_b0(
-            weights=torchvision.models.EfficientNet_B0_Weights.DEFAULT)
-        model_pretrained.classifier[1] = nn.Linear(model_pretrained.classifier[1].in_features, num_classes)
-        return model_pretrained
-    else:
-        raise ValueError("model_name not found.")
-
-
-if __name__ == '__main__':
-    # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
-    # model = create_model("efficientnet", num_classes=71)
-    # model = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
-    model = torchvision.models.efficientnet_b0(weights=torchvision.models.EfficientNet_B0_Weights.DEFAULT,
-                                               progress=True)
-    model.classifier[1] = nn.Linear(model.classifier[1].in_features, 71)
-    print(model)

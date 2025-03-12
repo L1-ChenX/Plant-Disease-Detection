@@ -9,7 +9,7 @@ from PIL import Image
 from torchvision import transforms
 from tqdm import tqdm
 
-from model.model import create_model
+from models.model import create_model
 from utils.utils import MyDataSet, read_split_data
 
 
@@ -51,7 +51,7 @@ def test_acc(model, data_transform, device, batch_size=64):
                                               shuffle=False,
                                               pin_memory=True,
                                               num_workers=0)
-    # loss, accuracy = test_model(model=model, data_loader=test_loader, device=device, epoch=1)
+    # loss, accuracy = test_model(models=models, data_loader=test_loader, device=device, epoch=1)
     loss, accuracy = test_accuracy(model, test_loader, device)
     print(f"Test Loss: {loss:.4f}, Accuracy: {accuracy:.4f}")
 
@@ -121,8 +121,8 @@ if __name__ == '__main__':
          transforms.ToTensor(),
          transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
-    # create model
-    # model = timm.create_model("efficientnet_b0", pretrained=False, num_classes=38).to(device)
+    # create models
+    # models = timm.create_model("efficientnet_b0", pretrained=False, num_classes=38).to(device)
     model = create_model(model_name="cnn", num_classes=71).to(device)  # 创建模型
 
     # 加载模型权重
@@ -130,9 +130,9 @@ if __name__ == '__main__':
     model.load_state_dict(torch.load(model_weight_path, map_location=device))
     model.eval()
     # weights_dict = torch.load(model_weight_path, map_location=device)
-    # model_dict = model.state_dict()
-    # model.load_state_dict({k: v for k, v in weights_dict.items() if k in model_dict})
-    # model.eval()
+    # model_dict = models.state_dict()
+    # models.load_state_dict({k: v for k, v in weights_dict.items() if k in model_dict})
+    # models.eval()
 
     test_acc(model, data_transform, device, batch_size=256)
-    # predict_images(model, data_transform, device)
+    # predict_images(models, data_transform, device)

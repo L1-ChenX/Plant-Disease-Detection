@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
 
-ort_session = onnxruntime.InferenceSession('./ONNX/efficientnet_b0_PlantDiseases38.onnx')
+ort_session = onnxruntime.InferenceSession('ONNX/efficientnet_b0_PlantDiseases38.onnx')
 x = torch.randn(1, 3, 224, 224).numpy()
 print(x.shape)
 
