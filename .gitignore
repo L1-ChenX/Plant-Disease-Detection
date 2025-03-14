@@ -12,6 +12,9 @@ gen
 /predict/test_img/
 /data_set/
 /train/runs/
-/train/save_weight/
+/train/save_weights/
 /test/
 /plot_img/
+/train/class_indices.json
+/outputs/class_indices.json
+/predict/class_indices.json

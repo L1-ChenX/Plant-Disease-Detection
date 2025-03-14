@@ -79,7 +79,7 @@ def deduplicate_and_copy_images(base_dir, phash_threshold=5):
 def undersample_majority_classes(base_dir, target_count=1000):
     """ 通过随机删除图片，减少大类别样本，使其不超过 target_count """
     print("欠采样大类别")
-    input_dir = os.path.join(base_dir, "data")
+    input_dir = os.path.join(base_dir, "filtered")
     output_dir = os.path.join(base_dir, "under-sampled")
     ensure_empty_dir(output_dir)
 
@@ -219,8 +219,8 @@ if __name__ == "__main__":
 
     # deduplicate_and_copy_images(base_directory, phash_threshold=5)
 
-    undersample_majority_classes(base_directory, target_count=2000)
+    undersample_majority_classes(base_directory, target_count=1000)
 
     split_dataset(base_directory, train_ratio=0.8)
 
-    augment_images(base_directory, target_count=1600)
+    augment_images(base_directory, target_count=800)

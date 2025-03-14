@@ -6,7 +6,7 @@ device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # models = timm.create_model("efficientnet_b0", pretrained=False, num_classes=38).to(device)
 model = create_model("efficientnet_b0", num_classes=24).to(device)
-model_weight_path = "../train/save_weight/efficientnet_b0/efficientnet_b0_74.pth"  # 训练保存的权重路径
+model_weight_path = "../train/save_weights/efficientnet_b0/efficientnet_b0_74.pth"  # 训练保存的权重路径
 
 weights_dict = torch.load(model_weight_path, map_location=device)
 model_dict = model.state_dict()

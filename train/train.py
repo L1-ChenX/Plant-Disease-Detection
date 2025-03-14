@@ -176,7 +176,7 @@ def main(args):
                                  figure=fig,
                                  global_step=epoch)
         # 定义模型保存路径
-        save_dir = os.path.join("save_weight", model_name)
+        save_dir = os.path.join("save_weights", model_name)
         # save weights
         if best_acc < test_acc:
             os.makedirs(save_dir, exist_ok=True)  # 确保目录存在

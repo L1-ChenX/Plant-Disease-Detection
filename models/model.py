@@ -40,8 +40,8 @@ def create_model(model_name, num_classes=10):
     elif model_name == "efficientnet_b0":
         return efficientnet_b0(num_classes=num_classes)
     elif model_name == "modified":
-        return efficientnet_b0(num_classes=num_classes, squeeze_factor=4, activation_layer=nn.Mish,
-                               classifier_modify=True)
+        return efficientnet_b0(num_classes=num_classes, activation_layer=nn.Mish, classifier_modify=True, use_se=False)
+        # return efficientnet_b0(num_classes=num_classes, use_se=False)
     elif model_name == 'pretrained':
         model_pretrained = torchvision.models.efficientnet_b0(
             weights=torchvision.models.EfficientNet_B0_Weights.DEFAULT)
@@ -55,6 +55,6 @@ if __name__ == '__main__':
     # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
     # models = create_model("efficientnet", num_classes=71)
     # models = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
-    model = create_model("resnet50")
+    model = create_model("modified")
 
     print(model)

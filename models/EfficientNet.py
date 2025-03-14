@@ -109,6 +109,53 @@ class SqueezeExcitation(nn.Module):
         return scale * x
 
 
+class ChannelAttention(nn.Module):
+    def __init__(self, in_planes, ratio=16):
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        self.fc1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
+        self.relu = nn.ReLU()
+        self.fc2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = self.fc2(self.relu(self.fc1(self.avg_pool(x))))
+        max_out = self.fc2(self.relu(self.fc1(self.max_pool(x))))
+        out = avg_out + max_out
+        return self.sigmoid(out)
+
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=(kernel_size - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x_cat = torch.cat([avg_out, max_out], dim=1)
+        out = self.sigmoid(self.conv(x_cat))
+        return out
+
+
+class CBAM(nn.Module):
+    def __init__(self, channels, reduction_ratio=16, kernel_size=7):
+        super(CBAM, self).__init__()
+        self.channel_attention = ChannelAttention(channels, reduction_ratio)
+        self.spatial_attention = SpatialAttention(kernel_size)
+
+    def forward(self, x):
+        # 通道注意力机制
+        x = self.channel_attention(x) * x
+        # 空间注意力机制
+        x = self.spatial_attention(x) * x
+        return x
+
+
 class InvertedResidualConfig:
     # kernel_size, in_channel, out_channel, exp_ratio, strides, use_SE, drop_connect_rate
     def __init__(self,
@@ -159,7 +206,7 @@ class InvertedResidual(nn.Module):
                                                            norm_layer=norm_layer,
                                                            activation_layer=activation_layer)})
 
-        # depthwise
+        # depth wise
         layers.update({"dwconv": ConvBNActivation(cnf.expanded_c,
                                                   cnf.expanded_c,
                                                   kernel_size=cnf.kernel,
@@ -171,6 +218,8 @@ class InvertedResidual(nn.Module):
         if cnf.use_se:
             layers.update({"se": SqueezeExcitation(cnf.input_c, cnf.expanded_c, squeeze_factor=squeeze_factor,
                                                    activation_layer=activation_layer)})
+        else:
+            layers.update({"cbam": CBAM(cnf.expanded_c)})
 
         # project
         layers.update({"project_conv": ConvBNActivation(cnf.expanded_c,
@@ -210,17 +259,18 @@ class EfficientNet(nn.Module):
                  block: Optional[Callable[..., nn.Module]] = None,
                  norm_layer: Optional[Callable[..., nn.Module]] = None,
                  classifier_modify: bool = False,
+                 use_se: bool = True,  # 新增参数
                  ):
         super(EfficientNet, self).__init__()
 
         # kernel_size, in_channel, out_channel, exp_ratio, strides, use_SE, drop_connect_rate, repeats
-        default_cnf = [[3, 32, 16, 1, 1, True, drop_connect_rate, 1],
-                       [3, 16, 24, 6, 2, True, drop_connect_rate, 2],
-                       [5, 24, 40, 6, 2, True, drop_connect_rate, 2],
-                       [3, 40, 80, 6, 2, True, drop_connect_rate, 3],
-                       [5, 80, 112, 6, 1, True, drop_connect_rate, 3],
-                       [5, 112, 192, 6, 2, True, drop_connect_rate, 4],
-                       [3, 192, 320, 6, 1, True, drop_connect_rate, 1]]
+        default_cnf = [[3, 32, 16, 1, 1, use_se, drop_connect_rate, 1],
+                       [3, 16, 24, 6, 2, use_se, drop_connect_rate, 2],
+                       [5, 24, 40, 6, 2, use_se, drop_connect_rate, 2],
+                       [3, 40, 80, 6, 2, use_se, drop_connect_rate, 3],
+                       [5, 80, 112, 6, 1, use_se, drop_connect_rate, 3],
+                       [5, 112, 192, 6, 2, use_se, drop_connect_rate, 4],
+                       [3, 192, 320, 6, 1, use_se, drop_connect_rate, 1]]
 
         def round_repeats(repeats):
             """Round number of repeats based on depth multiplier."""
@@ -319,15 +369,15 @@ class EfficientNet(nn.Module):
         return self._forward_impl(x)
 
 
-def efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.SiLU, classifier_modify=False):
+def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=False, use_se=True):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
                         depth_coefficient=1.0,
                         dropout_rate=0.2,
                         num_classes=num_classes,
-                        squeeze_factor=squeeze_factor,
                         activation_layer=activation_layer,
-                        classifier_modify=classifier_modify)
+                        classifier_modify=classifier_modify,
+                        use_se=use_se)
 
 
 def efficientnet_b1(num_classes=10):

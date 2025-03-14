@@ -344,3 +344,21 @@ def test_model(model, data_loader, device, epoch):
             accu_num.item() / sample_num)
 
     return accu_loss.item() / (step + 1), accu_num.item() / sample_num
+
+
+def load_latest_model(model, model_name, device):
+    # 获取目录下所有.pth文件，并按修改时间排序
+    # weights_dir = os.path.join("../train/save_weights", model_name)
+    weights_dir = os.path.join("..", "train", "save_weights", model_name)
+    weight_files = [f for f in os.listdir(weights_dir) if f.endswith('.pth')]
+    assert len(weight_files) > 0, f"No .pth files found in {weights_dir}"
+
+    latest_weight_file = max(
+        weight_files,
+        key=lambda x: os.path.getmtime(os.path.join(weights_dir, x))
+    )
+
+    latest_model_path = os.path.join(weights_dir, latest_weight_file)
+    print(f"加载最新的模型权重：{latest_model_path}")
+
+    model.load_state_dict(torch.load(latest_model_path, map_location=device))
