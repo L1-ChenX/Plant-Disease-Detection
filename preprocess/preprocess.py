@@ -219,8 +219,8 @@ if __name__ == "__main__":
 
     # deduplicate_and_copy_images(base_directory, phash_threshold=5)
 
-    undersample_majority_classes(base_directory, target_count=1000)
+    undersample_majority_classes(base_directory, target_count=2000)
 
     split_dataset(base_directory, train_ratio=0.8)
 
-    augment_images(base_directory, target_count=800)
+    augment_images(base_directory, target_count=1600)

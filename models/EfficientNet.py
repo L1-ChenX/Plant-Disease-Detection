@@ -85,6 +85,33 @@ class ConvBNActivation(nn.Sequential):
                                                activation_layer())
 
 
+class GhostModule(nn.Module):
+    def __init__(self, in_planes, out_planes, kernel_size=1, ratio=2, dw_size=3, stride=1, relu=True):
+        super(GhostModule, self).__init__()
+        self.out_planes = out_planes
+        init_channels = math.ceil(out_planes / ratio)
+        new_channels = init_channels * (ratio - 1)
+
+        self.primary_conv = nn.Sequential(
+            nn.Conv2d(in_planes, init_channels, kernel_size, stride, kernel_size // 2, bias=False),
+            nn.BatchNorm2d(init_channels),
+            nn.ReLU(inplace=True) if relu else nn.Sequential(),
+        )
+
+        self.cheap_operation = nn.Sequential(
+            nn.Conv2d(init_channels, new_channels, dw_size, 1, dw_size // 2,
+                      groups=init_channels, bias=False),
+            nn.BatchNorm2d(new_channels),
+            nn.ReLU(inplace=True) if relu else nn.Sequential(),
+        )
+
+    def forward(self, x):
+        x1 = self.primary_conv(x)
+        x2 = self.cheap_operation(x1)  # 这里的输入应为x1，而不是x
+        out = torch.cat([x1, x2], dim=1)
+        return out[:, :self.out_planes, :, :]
+
+
 class SqueezeExcitation(nn.Module):
     def __init__(self,
                  input_c: int,  # block input channel
@@ -165,6 +192,7 @@ class InvertedResidualConfig:
                  expanded_ratio: int,  # 1 or 6
                  stride: int,  # 1 or 2
                  use_se: bool,  # True
+                 ghost: bool,  # False
                  drop_rate: float,
                  index: str,  # 1a, 2a, 2b, ...
                  width_coefficient: float):
@@ -173,6 +201,7 @@ class InvertedResidualConfig:
         self.expanded_c = self.input_c * expanded_ratio
         self.out_c = self.adjust_channels(out_c, width_coefficient)
         self.use_se = use_se
+        self.ghost = ghost
         self.stride = stride
         self.drop_rate = drop_rate
         self.index = index
@@ -200,11 +229,18 @@ class InvertedResidual(nn.Module):
 
         # expand
         if cnf.expanded_c != cnf.input_c:
-            layers.update({"expand_conv": ConvBNActivation(cnf.input_c,
-                                                           cnf.expanded_c,
-                                                           kernel_size=1,
-                                                           norm_layer=norm_layer,
-                                                           activation_layer=activation_layer)})
+            if cnf.ghost:
+                layers.update({"expand_conv": GhostModule(cnf.input_c,
+                                                          cnf.expanded_c,
+                                                          kernel_size=1,
+                                                          stride=1,
+                                                          relu=True)})
+            else:
+                layers.update({"expand_conv": ConvBNActivation(cnf.input_c,
+                                                               cnf.expanded_c,
+                                                               kernel_size=1,
+                                                               norm_layer=norm_layer,
+                                                               activation_layer=activation_layer)})
 
         # depth wise
         layers.update({"dwconv": ConvBNActivation(cnf.expanded_c,
@@ -260,17 +296,18 @@ class EfficientNet(nn.Module):
                  norm_layer: Optional[Callable[..., nn.Module]] = None,
                  classifier_modify: bool = False,
                  use_se: bool = True,  # 新增参数
+                 ghost: bool = False  # 新增参数
                  ):
         super(EfficientNet, self).__init__()
 
         # kernel_size, in_channel, out_channel, exp_ratio, strides, use_SE, drop_connect_rate, repeats
-        default_cnf = [[3, 32, 16, 1, 1, use_se, drop_connect_rate, 1],
-                       [3, 16, 24, 6, 2, use_se, drop_connect_rate, 2],
-                       [5, 24, 40, 6, 2, use_se, drop_connect_rate, 2],
-                       [3, 40, 80, 6, 2, use_se, drop_connect_rate, 3],
-                       [5, 80, 112, 6, 1, use_se, drop_connect_rate, 3],
-                       [5, 112, 192, 6, 2, use_se, drop_connect_rate, 4],
-                       [3, 192, 320, 6, 1, use_se, drop_connect_rate, 1]]
+        default_cnf = [[3, 32, 16, 1, 1, use_se, ghost, drop_connect_rate, 1],
+                       [3, 16, 24, 6, 2, use_se, ghost, drop_connect_rate, 2],
+                       [5, 24, 40, 6, 2, use_se, ghost, drop_connect_rate, 2],
+                       [3, 40, 80, 6, 2, use_se, ghost, drop_connect_rate, 3],
+                       [5, 80, 112, 6, 1, use_se, ghost, drop_connect_rate, 3],
+                       [5, 112, 192, 6, 2, use_se, ghost, drop_connect_rate, 4],
+                       [3, 192, 320, 6, 1, use_se, ghost, drop_connect_rate, 1]]
 
         def round_repeats(repeats):
             """Round number of repeats based on depth multiplier."""
@@ -297,7 +334,7 @@ class EfficientNet(nn.Module):
             for i in range(round_repeats(cnf.pop(-1))):
                 if i > 0:
                     # strides equal 1 except first cnf
-                    cnf[-3] = 1  # strides
+                    cnf[-4] = 1  # strides
                     cnf[1] = cnf[2]  # input_channel equal output_channel
 
                 cnf[-1] = args[-2] * b / num_blocks  # update dropout ratio
@@ -309,12 +346,19 @@ class EfficientNet(nn.Module):
         layers = OrderedDict()
 
         # first conv
-        layers.update({"stem_conv": ConvBNActivation(in_planes=3,
-                                                     out_planes=adjust_channels(32),
-                                                     kernel_size=3,
-                                                     stride=2,
-                                                     norm_layer=norm_layer,
-                                                     activation_layer=activation_layer)})
+        if ghost:
+            layers.update({"stem_conv": GhostModule(in_planes=3,
+                                                    out_planes=adjust_channels(32),
+                                                    kernel_size=3,
+                                                    stride=2,
+                                                    relu=True)})
+        else:
+            layers.update({"stem_conv": ConvBNActivation(in_planes=3,
+                                                         out_planes=adjust_channels(32),
+                                                         kernel_size=3,
+                                                         stride=2,
+                                                         norm_layer=norm_layer,
+                                                         activation_layer=activation_layer)})
 
         # building inverted residual blocks
         for cnf in inverted_residual_setting:
@@ -369,7 +413,7 @@ class EfficientNet(nn.Module):
         return self._forward_impl(x)
 
 
-def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=False, use_se=True):
+def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=False, use_se=True, ghost=False):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
                         depth_coefficient=1.0,
@@ -377,7 +421,8 @@ def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=
                         num_classes=num_classes,
                         activation_layer=activation_layer,
                         classifier_modify=classifier_modify,
-                        use_se=use_se)
+                        use_se=use_se,
+                        ghost=ghost)
 
 
 def efficientnet_b1(num_classes=10):

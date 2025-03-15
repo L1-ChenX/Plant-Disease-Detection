@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
+
+import timm
+import torch
 import torch.nn as nn
-import torchvision
 from torch.nn import functional as F
 
 from models.EfficientNet import efficientnet_b0
@@ -34,19 +36,18 @@ class SimpleCNN(nn.Module):
 
 def create_model(model_name, num_classes=10):
     if model_name == "cnn":
-        return SimpleCNN(num_classes=num_classes)
+        return SimpleCNN(num_classes)
     elif model_name == "resnet50":
-        return resnet50(num_classes=num_classes)
+        return resnet50(num_classes)
+    elif model_name == "resnet152":
+        return timm.create_model('resnet152', pretrained=True, num_classes=num_classes)
     elif model_name == "efficientnet_b0":
-        return efficientnet_b0(num_classes=num_classes)
+        return efficientnet_b0(num_classes)
     elif model_name == "modified":
-        return efficientnet_b0(num_classes=num_classes, activation_layer=nn.Mish, classifier_modify=True, use_se=False)
-        # return efficientnet_b0(num_classes=num_classes, use_se=False)
-    elif model_name == 'pretrained':
-        model_pretrained = torchvision.models.efficientnet_b0(
-            weights=torchvision.models.EfficientNet_B0_Weights.DEFAULT)
-        model_pretrained.classifier[1] = nn.Linear(model_pretrained.classifier[1].in_features, num_classes)
-        return model_pretrained
+        return efficientnet_b0(num_classes, nn.Mish, classifier_modify=True, use_se=False)
+        # return efficientnet_b0(num_classes, use_se=False)
+    elif model_name == 'vit':
+        return timm.create_model('vit_base_patch16_224', pretrained=True, num_classes=num_classes)
     else:
         raise ValueError("model_name not found.")
 
@@ -55,6 +56,7 @@ if __name__ == '__main__':
     # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
     # models = create_model("efficientnet", num_classes=71)
     # models = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
-    model = create_model("modified")
-
+    model = create_model("resnet152")
+    X = torch.randn(1, 3, 224, 224)
     print(model)
+    print(model(X).shape)

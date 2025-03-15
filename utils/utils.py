@@ -8,6 +8,8 @@ import sys
 
 import matplotlib.pyplot as plt
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from PIL import Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
@@ -219,7 +221,7 @@ def plot_class_preds(net,  # 实例化的模型
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch):
     model.train()
-    loss_function = torch.nn.CrossEntropyLoss()  # 交叉熵损失函数
+    loss_function = torch.nn.CrossEntropyLoss()  # 标签平滑 label_smoothing=0.1
     accu_loss = torch.zeros(1).to(device)  # 累计损失
     accu_num = torch.zeros(1).to(device)  # 累计预测正确的样本数
     optimizer.zero_grad()  # 梯度清零
@@ -235,6 +237,71 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch):
         accu_num += torch.eq(pred_classes, labels.to(device)).sum()
 
         loss = loss_function(pred, labels.to(device))
+        loss.backward()  # 反向传播
+        accu_loss += loss.detach()
+
+        data_loader.desc = "[train epoch {}] loss: {:.3f}, acc: {:.3f}".format(
+            epoch,
+            accu_loss.item() / (step + 1),
+            accu_num.item() / sample_num)
+
+        if not torch.isfinite(loss):
+            print('WARNING: non-finite loss, ending training ', loss)
+            sys.exit(1)
+
+        optimizer.step()  # 更新参数
+        optimizer.zero_grad()
+
+    return accu_loss.item() / (step + 1), accu_num.item() / sample_num
+
+
+class KDLoss(nn.Module):
+    """
+    Knowledge Distillation Loss
+    alpha * CE(student_logits, true_labels) + (1-alpha) * KL(student_logits, teacher_logits, T)
+    """
+
+    def __init__(self, alpha=0.5, temperature=4.0):
+        super().__init__()
+        self.alpha = alpha
+        self.T = temperature
+        self.ce = nn.CrossEntropyLoss()
+        self.kl = nn.KLDivLoss(reduction="batchmean")
+
+    def forward(self, student_logits, teacher_logits, labels):
+        # CE Loss
+        loss_ce = self.ce(student_logits, labels)
+        # KL Divergence with temperature
+        teacher_probs = F.softmax(teacher_logits / self.T, dim=1)
+        student_log_probs = F.log_softmax(student_logits / self.T, dim=1)
+        loss_kd = self.kl(student_log_probs, teacher_probs) * (self.T * self.T)
+
+        loss = self.alpha * loss_ce + (1 - self.alpha) * loss_kd
+        return loss
+
+
+def distill_one_epoch(model, teacher_model, optimizer, data_loader, device, epoch):
+    model.train()
+    teacher_model.eval()
+    loss_function = KDLoss(alpha=0.5, temperature=4.0)  # 你可以调参数
+    accu_loss = torch.zeros(1).to(device)  # 累计损失
+    accu_num = torch.zeros(1).to(device)  # 累计预测正确的样本数
+    optimizer.zero_grad()  # 梯度清零
+
+    sample_num = 0
+    data_loader = tqdm(data_loader)
+    for step, data in enumerate(data_loader):
+        images, labels = data
+        sample_num += images.shape[0]
+
+        pred = model(images.to(device))
+        with torch.no_grad():
+            teacher_pred = teacher_model(images.to(device))
+
+        pred_classes = torch.max(pred, dim=1)[1]
+        accu_num += torch.eq(pred_classes, labels.to(device)).sum()
+
+        loss = loss_function(pred, teacher_pred, labels.to(device))
         loss.backward()  # 反向传播
         accu_loss += loss.detach()
 

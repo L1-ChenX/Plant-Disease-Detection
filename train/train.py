@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 import sys
 
+import timm
+from timm.scheduler import CosineLRScheduler
+
 [sys.path.append(i) for i in ['.', '..']]
 
 import argparse
-import math
 import os
 
 import torch
 import torch.optim as optim
-import torch.optim.lr_scheduler as lr_scheduler
 import torch.utils.data
 from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
@@ -22,7 +23,7 @@ def main(args):
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
 
     print(args)
-    print('Start Tensorboard with "tensorboard --logdir=runs", '
+    print('Start Tensorboard with "tensorboard --logdir=./runs", '
           'view at http://localhost:6006/')
     log_dir = os.path.join("./runs", args.model_name)
     if not os.path.exists(log_dir):
@@ -128,10 +129,43 @@ def main(args):
             else:
                 print("training {}".format(name))
 
+    # distill
+    if args.distill:
+        teacher = timm.create_model('vit_base_patch16_224', num_classes=args.num_classes).to(device)
+        if args.teacher_weights != "":
+            if os.path.exists(args.teacher_weights):
+                weights_dict = torch.load(args.teacher_weights, map_location=device)
+                load_weights_dict = {k: v for k, v in weights_dict.items() if
+                                     teacher.state_dict()[k].numel() == v.numel()}
+                print(teacher.load_state_dict(load_weights_dict, strict=False))
+            else:
+                raise FileNotFoundError(
+                    "not found teacher weights file: {}".format(args.teacher_weights))
+        teacher.eval()  # 固定Teacher
+        # 冻结Teacher权重
+        for param in teacher.parameters():
+            param.requires_grad = False
+
     pg = [p for p in model.parameters() if p.requires_grad]
-    optimizer = optim.SGD(pg, lr=args.lr, momentum=0.9, weight_decay=1E-4)  # 优化器
-    lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf  # cosine
-    scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+    if args.optimizer == "SGD":
+        optimizer = optim.SGD(pg, lr=args.lr, momentum=0.9, weight_decay=1E-4)  # 优化器
+        # lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf  # cosine
+        # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
+
+    elif args.optimizer == "Adam":
+        optimizer = torch.optim.AdamW(pg, lr=args.lr, weight_decay=1e-4)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.lrf * args.lr)
+    else:
+        raise ValueError("optimizer not support")
+
+    scheduler = CosineLRScheduler(
+        optimizer,
+        t_initial=args.epochs - args.warmup_epochs,
+        lr_min=args.lrf * args.lr,
+        warmup_t=args.warmup_epochs,  # warm-up epoch 数
+        warmup_lr_init=args.warmup_lr,  # warm-up开始lr
+        warmup_prefix=True,
+    )
 
     best_acc = 0.
     i = 0
@@ -146,7 +180,7 @@ def main(args):
                                                 epoch=epoch)
 
         # update learning rate
-        scheduler.step()
+        scheduler.step(epoch)
 
         # test
         test_loss, test_acc = test_model(model=model,
@@ -191,18 +225,23 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--num_classes', type=int, default=24)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
-    parser.add_argument('--batch_size', type=int, default=64)  # 批次大小
+    parser.add_argument('--warmup_epochs', type=int, default=10)  # warmup训练次数
+    parser.add_argument('--batch_size', type=int, default=128)  # 批次大小
     parser.add_argument('--num_workers', type=int, default=10)  # 使用线程数目
     parser.add_argument('--lr', type=float, default=0.001)  # 初始学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 最终学习率比例
+    parser.add_argument('--warmup_lr', type=float, default=1e-6)  # warmup初始学习率
 
-    parser.add_argument('--model_name', type=str, default='cnn')  # cnn efficientnet_b0 resnet50
+    parser.add_argument('--model_name', type=str, default='modified')  # cnn efficientnet_b0 resnet50 vit
     # download models weights
-    parser.add_argument('--weights', type=str, default='',
-                        help='initial weights path')  # 预训练权重路径
+    parser.add_argument('--weights', type=str, default='', help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重
     parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
     parser.add_argument('--cloud', type=bool, default=False)
+    parser.add_argument('--optimizer', type=str, default="Adam")  # 优化器
+    # distill
+    parser.add_argument('--distill', action='store_true', default=False, help='use distillation')
+    parser.add_argument('--teacher_weights', type=str, default='')
 
     opt = parser.parse_args()
 
