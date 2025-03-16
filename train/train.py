@@ -50,18 +50,17 @@ def main(args):
 
     data_transform = {
         "train": transforms.Compose([
-            transforms.Resize(img_size[num_model] + 32),  # 先调整尺寸
-            transforms.RandomCrop(img_size[num_model]),  # 让裁剪范围更合理
+            # transforms.Resize(img_size[num_model] + 32),  # 先调整尺寸
+            # transforms.RandomCrop(img_size[num_model]),  # 让裁剪范围更合理
+            transforms.RandomResizedCrop(img_size[num_model]),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406],
-                                 [0.229, 0.224, 0.225])]),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])]),
         "test": transforms.Compose([
             transforms.Resize(img_size[num_model]),
             transforms.CenterCrop(img_size[num_model]),
             transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406],
-                                 [0.229, 0.224, 0.225])])}
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])}
 
     # 实例化训练数据集
     train_dataset = MyDataSet(images_path=train_images_path,
@@ -226,13 +225,13 @@ if __name__ == '__main__':
     parser.add_argument('--num_classes', type=int, default=24)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
     parser.add_argument('--warmup_epochs', type=int, default=10)  # warmup训练次数
-    parser.add_argument('--batch_size', type=int, default=128)  # 批次大小
+    parser.add_argument('--batch_size', type=int, default=8)  # 批次大小
     parser.add_argument('--num_workers', type=int, default=10)  # 使用线程数目
     parser.add_argument('--lr', type=float, default=0.001)  # 初始学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 最终学习率比例
     parser.add_argument('--warmup_lr', type=float, default=1e-6)  # warmup初始学习率
 
-    parser.add_argument('--model_name', type=str, default='modified')  # cnn efficientnet_b0 resnet50 vit
+    parser.add_argument('--model_name', type=str, default='cnn')  # cnn cbam coord resnet50 vit
     # download models weights
     parser.add_argument('--weights', type=str, default='', help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重

@@ -2,43 +2,10 @@
 import os
 
 import torch.utils.data
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from torchvision import transforms
-from tqdm import tqdm
 
 from models.model import create_model
-from utils.utils import MyDataSet, read_split_data, load_latest_model
-
-
-@torch.no_grad()
-def evaluate_model(model, data_loader, device):
-    model.eval()
-
-    all_preds = []
-    all_labels = []
-
-    for images, labels in tqdm(data_loader, desc="Evaluating"):
-        images, labels = images.to(device), labels.to(device)
-        outputs = model(images)
-        preds = outputs.argmax(dim=1)
-
-        # 保存所有真实标签和预测标签
-        all_labels.extend(labels.cpu().numpy())
-        all_preds.extend(preds.cpu().numpy())
-
-    # 计算所有指标
-    accuracy = accuracy_score(all_labels, all_preds)
-    precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
-    recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
-    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
-
-    print("Accuracy: {:.4f}".format(accuracy))  # 整体准确率
-    print("Precision:", precision)  # 计算每个样本的精确率然后求平均值
-    print("Recall:", recall)  # 计算每个样本的召回率然后求平均值
-    print("F1-score:", f1)  # 计算每个样本的F1-score然后求平均值（P、R调和平均数）
-
-    return accuracy, precision, recall, f1
-
+from utils.utils import MyDataSet, read_split_data, load_latest_model, evaluate_model
 
 if __name__ == '__main__':
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")

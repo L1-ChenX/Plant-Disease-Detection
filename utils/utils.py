@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -429,3 +430,33 @@ def load_latest_model(model, model_name, device):
     print(f"加载最新的模型权重：{latest_model_path}")
 
     model.load_state_dict(torch.load(latest_model_path, map_location=device))
+
+
+@torch.no_grad()
+def evaluate_model(model, data_loader, device):
+    model.eval()
+
+    all_preds = []
+    all_labels = []
+
+    for images, labels in tqdm(data_loader, desc="Evaluating"):
+        images, labels = images.to(device), labels.to(device)
+        outputs = model(images)
+        preds = outputs.argmax(dim=1)
+
+        # 保存所有真实标签和预测标签
+        all_labels.extend(labels.cpu().numpy())
+        all_preds.extend(preds.cpu().numpy())
+
+    # 计算所有指标
+    accuracy = accuracy_score(all_labels, all_preds)
+    precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
+    recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
+    f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
+
+    print("Accuracy: {:.4f}".format(accuracy))  # 整体准确率
+    print("Precision:", precision)  # 计算每个样本的精确率然后求平均值
+    print("Recall:", recall)  # 计算每个样本的召回率然后求平均值
+    print("F1-score:", f1)  # 计算每个样本的F1-score然后求平均值（P、R调和平均数）
+
+    return accuracy, precision, recall, f1

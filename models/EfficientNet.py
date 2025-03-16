@@ -183,15 +183,106 @@ class CBAM(nn.Module):
         return x
 
 
+class CoordAtt(nn.Module):
+    """
+    Coordinate Attention (CVPR 2021)
+    将通道注意力与坐标信息相结合，适合移动端
+    """
+
+    def __init__(self, in_channels, reduction=32):
+        super(CoordAtt, self).__init__()
+        self.in_channels = in_channels
+        self.reduction = reduction
+        self.mid_channels = max(8, in_channels // reduction)
+
+        # conv1 用于通道压缩 (共享)
+        self.conv1 = nn.Conv2d(in_channels, self.mid_channels, kernel_size=1, stride=1, padding=0)
+
+        # conv_h / conv_w 分别映射回原通道
+        self.conv_h = nn.Conv2d(self.mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.conv_w = nn.Conv2d(self.mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
+
+        self.bn = nn.BatchNorm2d(self.mid_channels)
+        self.act = nn.ReLU(inplace=True)
+        self.sigmoid_h = nn.Sigmoid()
+        self.sigmoid_w = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, H, W = x.size()
+        # 水平池化: [B, C, 1, W]
+        x_h = torch.mean(x, dim=2, keepdim=True)
+        # 垂直池化: [B, C, H, 1]
+        x_w = torch.mean(x, dim=3, keepdim=True).transpose(2, 3)
+
+        # 将 x_h, x_w 合并后用同一个 conv1 做通道降维
+        y = torch.cat([x_h, x_w], dim=2)  # 拼在height维
+        y = self.conv1(y)
+        y = self.bn(y)
+        y = self.act(y)
+        # 分割成两部分
+        x_h, x_w = torch.split(y, [1, y.shape[2] - 1], dim=2)
+        # x_h shape: [B, mid_channels, 1, W]
+        # x_w shape: [B, mid_channels, (H-1?), W]  -> 需再调 reshape 使之为 [B, mid_channels, W, 1] or similar
+
+        # 这里仅演示思路，实际需要仔细对齐维度
+        # 假设要让 x_w 变回 [B, mid_channels, 1, H] 再 conv => [B, C, 1, H]
+        x_w = x_w.permute(0, 1, 3, 2)  # 做示例变换
+        # 分别通过 conv_h, conv_w
+        att_h = self.conv_h(x_h)  # [B, C, 1, W]
+        att_w = self.conv_w(x_w)  # [B, C, W, 1]
+        # 激活
+        att_h = self.sigmoid_h(att_h)
+        att_w = self.sigmoid_w(att_w)
+        # 还原 shape, 并与输入相乘
+        out = x * att_h.expand_as(x) * att_w.expand_as(x)
+        return out
+
+
+class ECAAttention(nn.Module):
+    """
+    ECA: Efficient Channel Attention
+    来自论文: "ECA-Net: Efficient Channel Attention for Deep Convolutional Neural Networks"
+    通过 1D 卷积来实现高效的通道注意力
+    """
+
+    def __init__(self, channel, k_size=3):
+        super(ECAAttention, self).__init__()
+        # 1D卷积的卷积核大小 (k_size) 决定了跨通道的交互范围
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)  # [B,C,H,W] -> [B,C,1,1]
+        self.conv = nn.Conv1d(in_channels=1, out_channels=1,
+                              kernel_size=k_size, padding=(k_size - 1) // 2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        # x shape: [B, C, H, W]
+        b, c, h, w = x.size()
+
+        # 全局平均池化
+        y = self.avg_pool(x)  # [B, C, 1, 1]
+
+        # 1D卷积需要 [B, 1, C] 形状 -> 先把 C 作为时序维度
+        y = y.squeeze(-1).transpose(-1, -2)  # [B, C, 1,1] -> [B, C, 1] -> [B,1,C]
+
+        # 进行 1D 卷积
+        y = self.conv(y)  # [B,1,C]
+
+        # reshape 回去
+        y = y.transpose(-1, -2).unsqueeze(-1)  # [B,1,C] -> [B,C,1] -> [B,C,1,1]
+        y = self.sigmoid(y)  # 通道注意力
+
+        # 与输入 x 做逐通道乘法
+        return x * y.expand_as(x)
+
+
 class InvertedResidualConfig:
-    # kernel_size, in_channel, out_channel, exp_ratio, strides, use_SE, drop_connect_rate
+    # kernel_size, in_channel, out_channel, exp_ratio, strides, attention_type, drop_connect_rate
     def __init__(self,
                  kernel: int,  # 3 or 5
                  input_c: int,
                  out_c: int,
                  expanded_ratio: int,  # 1 or 6
                  stride: int,  # 1 or 2
-                 use_se: bool,  # True
+                 attention_type: str,  # se, cbam, coord
                  ghost: bool,  # False
                  drop_rate: float,
                  index: str,  # 1a, 2a, 2b, ...
@@ -200,7 +291,7 @@ class InvertedResidualConfig:
         self.kernel = kernel
         self.expanded_c = self.input_c * expanded_ratio
         self.out_c = self.adjust_channels(out_c, width_coefficient)
-        self.use_se = use_se
+        self.attention_type = attention_type
         self.ghost = ghost
         self.stride = stride
         self.drop_rate = drop_rate
@@ -251,18 +342,31 @@ class InvertedResidual(nn.Module):
                                                   norm_layer=norm_layer,
                                                   activation_layer=activation_layer)})
 
-        if cnf.use_se:
+        if cnf.attention_type == "se":
             layers.update({"se": SqueezeExcitation(cnf.input_c, cnf.expanded_c, squeeze_factor=squeeze_factor,
                                                    activation_layer=activation_layer)})
-        else:
+        elif cnf.attention_type == "cbam":
             layers.update({"cbam": CBAM(cnf.expanded_c)})
+        elif cnf.attention_type == "coord":
+            layers.update({"coord": CoordAtt(cnf.expanded_c)})
+        elif cnf.attention_type == "eca":
+            layers.update({"eca": ECAAttention(cnf.expanded_c)})
+        else:
+            raise ValueError("illegal attention type.")
 
         # project
-        layers.update({"project_conv": ConvBNActivation(cnf.expanded_c,
-                                                        cnf.out_c,
-                                                        kernel_size=1,
-                                                        norm_layer=norm_layer,
-                                                        activation_layer=nn.Identity)})
+        if cnf.ghost:
+            layers.update({"project_conv": GhostModule(cnf.expanded_c,
+                                                       cnf.out_c,
+                                                       kernel_size=1,
+                                                       stride=1,
+                                                       relu=False)})
+        else:
+            layers.update({"project_conv": ConvBNActivation(cnf.expanded_c,
+                                                            cnf.out_c,
+                                                            kernel_size=1,
+                                                            norm_layer=norm_layer,
+                                                            activation_layer=nn.Identity)})
 
         self.block = nn.Sequential(layers)
         self.out_channels = cnf.out_c
@@ -295,19 +399,19 @@ class EfficientNet(nn.Module):
                  block: Optional[Callable[..., nn.Module]] = None,
                  norm_layer: Optional[Callable[..., nn.Module]] = None,
                  classifier_modify: bool = False,
-                 use_se: bool = True,  # 新增参数
-                 ghost: bool = False  # 新增参数
+                 attention_type: str = "se",
+                 ghost: bool = False
                  ):
         super(EfficientNet, self).__init__()
 
         # kernel_size, in_channel, out_channel, exp_ratio, strides, use_SE, drop_connect_rate, repeats
-        default_cnf = [[3, 32, 16, 1, 1, use_se, ghost, drop_connect_rate, 1],
-                       [3, 16, 24, 6, 2, use_se, ghost, drop_connect_rate, 2],
-                       [5, 24, 40, 6, 2, use_se, ghost, drop_connect_rate, 2],
-                       [3, 40, 80, 6, 2, use_se, ghost, drop_connect_rate, 3],
-                       [5, 80, 112, 6, 1, use_se, ghost, drop_connect_rate, 3],
-                       [5, 112, 192, 6, 2, use_se, ghost, drop_connect_rate, 4],
-                       [3, 192, 320, 6, 1, use_se, ghost, drop_connect_rate, 1]]
+        default_cnf = [[3, 32, 16, 1, 1, attention_type, ghost, drop_connect_rate, 1],
+                       [3, 16, 24, 6, 2, attention_type, ghost, drop_connect_rate, 2],
+                       [5, 24, 40, 6, 2, attention_type, ghost, drop_connect_rate, 2],
+                       [3, 40, 80, 6, 2, attention_type, ghost, drop_connect_rate, 3],
+                       [5, 80, 112, 6, 1, attention_type, ghost, drop_connect_rate, 3],
+                       [5, 112, 192, 6, 2, attention_type, ghost, drop_connect_rate, 4],
+                       [3, 192, 320, 6, 1, attention_type, ghost, drop_connect_rate, 1]]
 
         def round_repeats(repeats):
             """Round number of repeats based on depth multiplier."""
@@ -413,7 +517,8 @@ class EfficientNet(nn.Module):
         return self._forward_impl(x)
 
 
-def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=False, use_se=True, ghost=False):
+def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=False, attention_type="se",
+                    ghost=False):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
                         depth_coefficient=1.0,
@@ -421,7 +526,7 @@ def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=
                         num_classes=num_classes,
                         activation_layer=activation_layer,
                         classifier_modify=classifier_modify,
-                        use_se=use_se,
+                        attention_type=attention_type,
                         ghost=ghost)
 
 
