@@ -1,3 +1,4 @@
+import csv
 import os
 
 
@@ -60,6 +61,24 @@ def print_category_counts(base_dir):
     print(total_row)
     print("=" * len(header))
     print("\n数据统计完成")
+
+    # CSV输出部分
+    headers = ["Category"] + list(stages.keys())
+    rows = []
+    for category in sorted(all_categories):
+        row = [category] + [stage_counts[stage].get(category, 0) for stage in stages.keys()]
+        rows.append(row)
+
+    total_csv_row = ["Total"] + [total_counts[stage] for stage in stages.keys()]
+    rows.append(total_csv_row)
+
+    csv_file_path = "image_counts.csv"
+    with open(csv_file_path, "w", encoding="utf-8", newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headers)
+        writer.writerows(rows)
+
+    print("\n数据统计完成，已输出到image_counts.csv")
 
 
 if __name__ == "__main__":

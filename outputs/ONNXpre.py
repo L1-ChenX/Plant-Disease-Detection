@@ -9,7 +9,8 @@ from torchvision import transforms
 
 if __name__ == '__main__':
 
-    ort_session = onnxruntime.InferenceSession('ONNX/modify_71.onnx')
+    ort_session = onnxruntime.InferenceSession('ONNX/efficientnet_b0_71.onnx')
+    # ort_session = onnxruntime.InferenceSession('ONNX/eca_71.onnx')
     x = torch.randn(1, 3, 224, 224).numpy()
     print(x.shape)
 
@@ -36,7 +37,7 @@ if __name__ == '__main__':
                              [0.229, 0.224, 0.225])
     ])
 
-    img_path = '../plot_img/1.jpg'
+    img_path = '../data_set/Plant_data/71/filtered/Grape___healthy/104812.jpg'
 
     # 用 pillow 载入
     img_pil = Image.open(img_path)
@@ -72,7 +73,7 @@ if __name__ == '__main__':
         idx_to_labels = json.load(f)
 
     for i in range(n):
-        # class_name = idx_to_labels[str(pred_ids[i])]
-        class_idx = int(pred_ids[i])
+        class_name = idx_to_labels[str(pred_ids[i])]
+        # class_idx = int(pred_ids[i])
         confidence = confs[i] * 100
-        print(f"{class_idx:<30} {confidence:.2f}%")
+        print(f"{class_name:<30} {confidence:.2f}%")

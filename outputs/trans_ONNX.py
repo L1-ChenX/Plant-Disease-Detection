@@ -8,7 +8,7 @@ from utils.utils import load_latest_model
 if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    model_name = "modify"
+    model_name = "eca"
     num_classes = 71
     model = create_model(model_name, num_classes).to(device)  # 创建模型
 

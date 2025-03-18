@@ -222,7 +222,7 @@ def main(args):
 if __name__ == '__main__':
     torch.cuda.empty_cache()
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num_classes', type=int, default=24)  # 图像类别
+    parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
     parser.add_argument('--warmup_epochs', type=int, default=10)  # warmup训练次数
     parser.add_argument('--batch_size', type=int, default=8)  # 批次大小

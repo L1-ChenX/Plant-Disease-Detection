@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+import csv
 import os
 
 import torch.utils.data
+from torch.utils.data import DataLoader
 from torchvision import transforms
 
 from models.model import create_model
@@ -19,40 +21,43 @@ if __name__ == '__main__':
                 "B7": 600}
     num_model = "B0"
 
-    data_transform = transforms.Compose(
-        [transforms.Resize(img_size[num_model]),
-         transforms.CenterCrop(img_size[num_model]),
-         transforms.ToTensor(),
-         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
-
-    # create models
-    model_name = "efficientnet_b0"
-    model = create_model(model_name=model_name, num_classes=24).to(device)  # 创建模型
-
-    # 加载模型权重
-    # model_weight_path = "../train/save_weights/efficientnet_b0/efficientnet_b0_74.pth"  # 训练保存的权重路径
-    # model_weight_path = os.path.join("../train/save_weights", model_name, "efficientnet_b0_74.pth")
-    # model.load_state_dict(torch.load(model_weight_path, map_location=device))
-    load_latest_model(model, model_name, device)
-    model.eval()
-    # weights_dict = torch.load(model_weight_path, map_location=device)
-    # model_dict = models.state_dict()
-    # models.load_state_dict({k: v for k, v in weights_dict.items() if k in model_dict})
-    # models.eval()
-
     data_root = os.path.abspath(os.path.join(os.getcwd(), "./.."))  # 数据集根目录
     train_images_path, train_images_label, \
         test_images_path, test_images_label = read_split_data(data_root)  # 读取数据集
 
-    test_dataset = MyDataSet(images_path=test_images_path,
-                             images_class=test_images_label,
-                             transform=data_transform)
-    test_loader = torch.utils.data.DataLoader(test_dataset,
-                                              batch_size=64,
-                                              shuffle=False,
-                                              pin_memory=True,
-                                              num_workers=0)
+    data_transform = transforms.Compose([transforms.Resize(img_size[num_model]),
+                                         transforms.CenterCrop(img_size[num_model]),
+                                         transforms.ToTensor(),
+                                         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
-    # test_acc(model, data_transform, device, batch_size=256)
-    evaluate_model(model, test_loader, device)
-    # predict_images(models, data_transform, device)
+    test_dataset = MyDataSet(images_path=test_images_path, images_class=test_images_label, transform=data_transform)
+    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, pin_memory=True, num_workers=0)
+
+    results = []
+    models = ["efficientnet_b0", "eca", "cbam", "coord"]
+    # 测试模型并记录结果
+    for model_name in models:
+        model = create_model(model_name=model_name, num_classes=71).to(device)
+        load_latest_model(model, model_name, device)
+        model.eval()
+
+        accuracy, precision, recall, f1 = evaluate_model(model, test_loader, device)
+
+        results.append([model_name, accuracy, precision, recall, f1])
+
+    # 打印并输出CSV
+    csv_file_path = "model_evaluation_results.csv"
+    headers = ['Model', 'Accuracy', 'Precision', 'Recall', 'F1-score']
+
+    with open(csv_file_path, "w", newline='', encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headers)
+        for res in results:
+            writer.writerow([res[0], f"{res[1]:.4f}", f"{res[2]:.4f}", f"{res[3]:.4f}", f"{res[4]:.4f}"])
+
+    # 在控制台打印结果
+    print("{:<20} {:<12} {:<12} {:<12} {:<10}".format(*headers))
+    for res in results:
+        print(f"{res[0]:<20} {res[1]:<10.4f} {res[2]:<10.4f} {res[3]:<10.4f} {res[4]:<10.4f}")
+
+    print("测试完成，结果已保存到 image_classification_results.csv")

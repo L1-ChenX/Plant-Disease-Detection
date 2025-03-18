@@ -39,13 +39,10 @@ def create_model(model_name, num_classes=10):
         return SimpleCNN(num_classes)
     elif model_name == "resnet50":
         return resnet50(num_classes)
-    elif model_name == "resnet152":
-        return timm.create_model('resnet152', pretrained=True, num_classes=num_classes)
     elif model_name == "efficientnet_b0":
         return efficientnet_b0(num_classes)
     elif model_name == "cbam":
         return efficientnet_b0(num_classes, attention_type="cbam")
-        # return efficientnet_b0(num_classes, use_se=False)
     elif model_name == "coord":
         return efficientnet_b0(num_classes, attention_type="coord")
     elif model_name == "eca":
@@ -59,9 +56,6 @@ def create_model(model_name, num_classes=10):
 
 
 if __name__ == '__main__':
-    # print(efficientnet_b0(num_classes=10, squeeze_factor=4, activation_layer=nn.Mish))
-    # models = create_model("efficientnet", num_classes=71)
-    # models = timm.create_model("efficientnet_b0", pretrained=False, num_classes=71)
     model = create_model("modify")
     X = torch.randn(1, 3, 224, 224)
     print(model)
