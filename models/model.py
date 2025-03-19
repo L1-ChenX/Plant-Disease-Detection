@@ -47,8 +47,13 @@ def create_model(model_name, num_classes=10):
         return efficientnet_b0(num_classes, attention_type="coord")
     elif model_name == "eca":
         return efficientnet_b0(num_classes, attention_type="eca")
+    elif model_name == "ghost":
+        return efficientnet_b0(num_classes, attention_type="eca", ghost_conv=True)
+    elif model_name == "dynamic":
+        return efficientnet_b0(num_classes, attention_type="eca", dynamic_conv=True)
     elif model_name == "modify":
-        return efficientnet_b0(num_classes, attention_type="eca", ghost=True)
+        return efficientnet_b0(num_classes, attention_type="eca", ghost_conv=True, dynamic_conv=True, mix_conv=True)
+
     elif model_name == 'vit':
         return timm.create_model('vit_base_patch16_224', pretrained=True, num_classes=num_classes)
     else:
