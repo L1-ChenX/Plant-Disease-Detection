@@ -15,9 +15,7 @@ gen
 /train/save_weights/
 /test/
 /plot_img/
-/train/class_indices.json
-/outputs/class_indices.json
-/predict/class_indices.json
 /train/bk/
-/preprocess/image_counts.csv
-/outputs/model_evaluation_results.csv
+*.json
+*.csv
+*.pth

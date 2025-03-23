@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os.path
 
 import timm
 import torch
@@ -43,25 +44,31 @@ def create_model(model_name, num_classes=10):
         return efficientnet_b0(num_classes)
     elif model_name == "cbam":
         return efficientnet_b0(num_classes, attention_type="cbam")
-    elif model_name == "coord":
-        return efficientnet_b0(num_classes, attention_type="coord")
+    elif model_name == "ca":
+        return efficientnet_b0(num_classes, attention_type="ca")
     elif model_name == "eca":
         return efficientnet_b0(num_classes, attention_type="eca")
     elif model_name == "ghost":
         return efficientnet_b0(num_classes, attention_type="eca", ghost_conv=True)
-    elif model_name == "dynamic":
-        return efficientnet_b0(num_classes, attention_type="eca", dynamic_conv=True)
+    elif model_name == "gs":
+        return efficientnet_b0(num_classes, attention_type="eca", gs_conv=True)
+    elif model_name == "fused":
+        return efficientnet_b0(num_classes, attention_type="eca", use_fused=True)
     elif model_name == "modify":
-        return efficientnet_b0(num_classes, attention_type="eca", ghost_conv=True, dynamic_conv=True, mix_conv=True)
-
-    elif model_name == 'vit':
-        return timm.create_model('vit_base_patch16_224', pretrained=True, num_classes=num_classes)
+        return efficientnet_b0(num_classes, attention_type="eca", ghost_conv=True, use_fused=True)
+    elif model_name == "v2":
+        # EfficientNetV2
+        return timm.create_model("efficientnetv2_rw_t", num_classes=num_classes)
     else:
         raise ValueError("model_name not found.")
 
 
 if __name__ == '__main__':
-    model = create_model("modify")
+    model_name = "efficientnet_b0"
+    model = create_model(model_name, 71)
+    # print(model.default_cfg['input_size'])
     X = torch.randn(1, 3, 224, 224)
     print(model)
     print(model(X).shape)
+    save_path = os.path.join("pth", model_name + ".pth")
+    torch.save(model.state_dict(), save_path)

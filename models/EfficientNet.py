@@ -100,8 +100,7 @@ class GhostModule(nn.Module):
         )
 
         self.cheap_operation = nn.Sequential(
-            nn.Conv2d(init_channels, new_channels, dw_size, 1, dw_size // 2,
-                      groups=init_channels, bias=False),
+            nn.Conv2d(init_channels, new_channels, dw_size, 1, dw_size // 2, groups=init_channels, bias=False),
             nn.BatchNorm2d(new_channels),
             nn.ReLU(inplace=True) if relu else nn.Sequential(),
         )
@@ -109,6 +108,47 @@ class GhostModule(nn.Module):
     def forward(self, x):
         x1 = self.primary_conv(x)
         x2 = self.cheap_operation(x1)  # 这里的输入应为x1，而不是x
+        out = torch.cat([x1, x2], dim=1)
+        return out[:, :self.out_planes, :, :]
+
+
+class GhostShuffleConv(nn.Module):
+    def __init__(self, in_planes, out_planes, kernel_size=1, stride=1, groups=2, ratio=2):
+        super(GhostShuffleConv, self).__init__()
+        self.out_planes = out_planes
+        self.groups = groups
+        init_channels = math.ceil(out_planes / ratio)
+        new_channels = init_channels * (ratio - 1)
+
+        # 主路径：使用 ShuffleNet Group Convolution
+        self.primary_conv = nn.Sequential(
+            nn.Conv2d(in_planes, init_channels, kernel_size, stride,
+                      padding=kernel_size // 2, groups=groups, bias=False),
+            nn.BatchNorm2d(init_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        # 生成额外特征（Ghost 计算）
+        self.cheap_operation = nn.Sequential(
+            nn.Conv2d(init_channels, new_channels, kernel_size=3, stride=1,
+                      padding=1, groups=init_channels, bias=False),
+            nn.BatchNorm2d(new_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def channel_shuffle(self, x):
+        """ 通道洗牌操作 """
+        batch_size, num_channels, height, width = x.shape
+        group_size = num_channels // self.groups
+        x = x.view(batch_size, self.groups, group_size, height, width)
+        x = x.permute(0, 2, 1, 3, 4).contiguous()
+        x = x.view(batch_size, num_channels, height, width)
+        return x
+
+    def forward(self, x):
+        x1 = self.primary_conv(x)
+        x1 = self.channel_shuffle(x1)  # 在 Ghost 主路径中添加通道洗牌
+        x2 = self.cheap_operation(x1)  # 生成 Ghost 特征
         out = torch.cat([x1, x2], dim=1)
         return out[:, :self.out_planes, :, :]
 
@@ -209,6 +249,121 @@ class MixDepthwiseSeparableConv(nn.Module):
         return torch.cat(outputs, dim=1)
 
 
+class ReceptiveFieldBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1, dilation_rates=None, reduction=4):
+        """
+        Receptive Field Block (RFB) 实现
+        :param in_channels: 输入通道数
+        :param out_channels: 输出通道数
+        :param stride: 步长（一般为 1）
+        :param dilation_rates: 不同的扩张率，决定不同感受野大小
+        :param reduction: 通道缩减比率（用于SE模块）
+        """
+        super(ReceptiveFieldBlock, self).__init__()
+
+        if dilation_rates is None:
+            dilation_rates = [1, 3, 5]
+        mid_channels = out_channels // len(dilation_rates)
+
+        # 1x1 基础卷积层 (用于降维)
+        self.conv1x1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
+        self.act1 = nn.ReLU(inplace=True)
+
+        # 并行扩张卷积分支
+        self.branches = nn.ModuleList()
+        for dilation in dilation_rates:
+            self.branches.append(nn.Sequential(
+                nn.Conv2d(mid_channels, mid_channels, kernel_size=3, stride=stride,
+                          padding=dilation, dilation=dilation, bias=False),
+                nn.BatchNorm2d(mid_channels),
+                nn.ReLU(inplace=True)
+            ))
+
+        # 1x1 卷积融合特征
+        self.conv_fusion = nn.Conv2d(mid_channels * len(dilation_rates), out_channels, kernel_size=1, bias=False)
+        self.bn_fusion = nn.BatchNorm2d(out_channels)
+
+        # Squeeze-and-Excitation (SE) 机制 (可选)
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc1 = nn.Conv2d(out_channels, out_channels // reduction, kernel_size=1, bias=False)
+        self.relu_se = nn.ReLU(inplace=True)
+        self.fc2 = nn.Conv2d(out_channels // reduction, out_channels, kernel_size=1, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = self.act1(self.bn1(self.conv1x1(x)))
+
+        # 并行计算多尺度卷积
+        out_branches = [branch(x) for branch in self.branches]
+        out = torch.cat(out_branches, dim=1)
+
+        # 1x1 卷积融合
+        out = self.bn_fusion(self.conv_fusion(out))
+
+        # SE 注意力机制
+        se = self.global_avg_pool(out)
+        se = self.relu_se(self.fc1(se))
+        se = self.sigmoid(self.fc2(se))
+        out = out * se
+
+        return out
+
+
+class ConvNeXtBlock(nn.Module):
+    def __init__(self, in_channels, expansion=4, kernel_size=7):
+        """
+        ConvNeXt Block 结构：
+        1. 7x7 Depthwise Conv
+        2. LayerNorm
+        3. 1x1 Pointwise Conv (升维)
+        4. GELU 激活
+        5. 1x1 Pointwise Conv (降维)
+        6. 残差连接
+        """
+        super(ConvNeXtBlock, self).__init__()
+        mid_channels = in_channels * expansion  # 扩展通道数
+
+        self.dwconv = nn.Conv2d(in_channels, in_channels, kernel_size=kernel_size,
+                                stride=1, padding=kernel_size // 2, groups=in_channels)  # 深度可分离卷积
+
+        self.norm = nn.LayerNorm(in_channels, eps=1e-6)  # LayerNorm 替代 BatchNorm
+        self.pwconv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1)  # 逐点卷积（升维）
+        self.act = nn.GELU()  # GELU 激活函数
+        self.pwconv2 = nn.Conv2d(mid_channels, in_channels, kernel_size=1)  # 逐点卷积（降维）
+
+    def forward(self, x):
+        residual = x
+        x = self.dwconv(x)
+        x = x.permute(0, 2, 3, 1)  # 转换维度以适配 LayerNorm
+        x = self.norm(x)
+        x = x.permute(0, 3, 1, 2)  # 还原回原来的维度
+        x = self.pwconv1(x)
+        x = self.act(x)
+        x = self.pwconv2(x)
+        return x + residual  # 残差连接
+
+
+class FusedMBConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
+                 norm_layer=None, activation_layer=None):
+        super(FusedMBConvBlock, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        if activation_layer is None:
+            activation_layer = nn.SiLU
+
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride,
+                      padding=kernel_size // 2, bias=False),
+            norm_layer(out_channels),
+            activation_layer()
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
 # se模块
 class SqueezeExcitation(nn.Module):
     def __init__(self,
@@ -242,21 +397,22 @@ class InvertedResidualConfig:
                  out_c: int,
                  expanded_ratio: int,  # 1 or 6
                  stride: int,  # 1 or 2
-                 attention_type: str,  # se, cbam, coord
+                 attention_type: str,  # se, cbam, ca
                  ghost_conv: bool,  # False
-                 dynamic_conv: bool,  # False
-                 mix_conv: bool,  # False
+                 gs_conv: bool,  # False
+                 use_fused: bool,  # False
                  drop_rate: float,
                  index: str,  # 1a, 2a, 2b, ...
                  width_coefficient: float):
         self.input_c = self.adjust_channels(input_c, width_coefficient)
         self.kernel = kernel
+        self.expanded_ratio = expanded_ratio
         self.expanded_c = self.input_c * expanded_ratio
         self.out_c = self.adjust_channels(out_c, width_coefficient)
         self.attention_type = attention_type
         self.ghost_conv = ghost_conv
-        self.dynamic_conv = dynamic_conv
-        self.mix_conv = mix_conv
+        self.use_fused = use_fused
+        self.gs_conv = gs_conv
         self.stride = stride
         self.drop_rate = drop_rate
         self.index = index
@@ -282,38 +438,37 @@ class InvertedResidual(nn.Module):
         layers = OrderedDict()
         # activation_layer = nn.SiLU  # alias Swish
 
-        # 扩张卷积
-        if cnf.expanded_c != cnf.input_c:
-            if cnf.ghost_conv:
-                layers.update({"expand_conv": GhostModule(cnf.input_c,
-                                                          cnf.expanded_c,
-                                                          kernel_size=1,
-                                                          stride=1,
-                                                          relu=True)})
-            else:
-                layers.update({"expand_conv": ConvBNActivation(cnf.input_c,
+        if cnf.use_fused:
+            if cnf.expanded_ratio != 1:
+                # 使用FusedMBConvBlock
+                layers.update({"expand_conv": FusedMBConvBlock(cnf.input_c,
                                                                cnf.expanded_c,
-                                                               kernel_size=1,
+                                                               kernel_size=cnf.kernel,
+                                                               stride=cnf.stride,
                                                                norm_layer=norm_layer,
                                                                activation_layer=activation_layer)})
-
-        # 深度卷积
-        if cnf.dynamic_conv:
-            layers.update({"dwconv": DynamicConvBNActivation(in_planes=cnf.expanded_c,
-                                                             out_planes=cnf.expanded_c,
-                                                             kernel_size=cnf.kernel,
-                                                             stride=cnf.stride,
-                                                             groups=cnf.expanded_c,  # depthwise convolution
-                                                             reduction=4,  # reduction ratio，可以调整
-                                                             norm_layer=norm_layer,
-                                                             activation_layer=activation_layer
-                                                             )})
-        elif cnf.mix_conv:
-            layers.update({"dwconv": MixDepthwiseSeparableConv(cnf.expanded_c,
-                                                               cnf.expanded_c,
-                                                               kernel_sizes=[3, 5],
-                                                               stride=cnf.stride)})
         else:
+            # 扩张卷积
+            if cnf.expanded_c != cnf.input_c:
+                if cnf.ghost_conv:
+                    layers.update({"expand_conv": GhostModule(cnf.input_c,
+                                                              cnf.expanded_c,
+                                                              kernel_size=1,
+                                                              stride=1,
+                                                              relu=True)})
+                elif cnf.gs_conv:
+                    layers.update({"expand_conv": GhostShuffleConv(cnf.input_c,
+                                                                   cnf.expanded_c,
+                                                                   kernel_size=1,
+                                                                   stride=1)})
+                else:
+                    layers.update({"expand_conv": ConvBNActivation(cnf.input_c,
+                                                                   cnf.expanded_c,
+                                                                   kernel_size=1,
+                                                                   norm_layer=norm_layer,
+                                                                   activation_layer=activation_layer)})
+
+            # 深度卷积
             layers.update({"dwconv": ConvBNActivation(cnf.expanded_c,
                                                       cnf.expanded_c,
                                                       kernel_size=cnf.kernel,
@@ -321,26 +476,30 @@ class InvertedResidual(nn.Module):
                                                       groups=cnf.expanded_c,
                                                       norm_layer=norm_layer,
                                                       activation_layer=activation_layer)})
+            if cnf.attention_type == "se":
+                layers.update({"se": SqueezeExcitation(cnf.input_c, cnf.expanded_c, squeeze_factor=squeeze_factor,
+                                                       activation_layer=activation_layer)})
+            elif cnf.attention_type == "cbam":
+                layers.update({"cbam": CBAM(cnf.expanded_c)})
+            elif cnf.attention_type == "ca":
+                layers.update({"coord": CoordAtt(cnf.expanded_c)})
+            elif cnf.attention_type == "eca":
+                layers.update({"eca": ECAAttention(cnf.expanded_c)})
+            else:
+                raise ValueError("illegal attention type.")
 
-        if cnf.attention_type == "se":
-            layers.update({"se": SqueezeExcitation(cnf.input_c, cnf.expanded_c, squeeze_factor=squeeze_factor,
-                                                   activation_layer=activation_layer)})
-        elif cnf.attention_type == "cbam":
-            layers.update({"cbam": CBAM(cnf.expanded_c)})
-        elif cnf.attention_type == "coord":
-            layers.update({"coord": CoordAtt(cnf.expanded_c)})
-        elif cnf.attention_type == "eca":
-            layers.update({"eca": ECAAttention(cnf.expanded_c)})
-        else:
-            raise ValueError("illegal attention type.")
-
-        # project
+        # 投影卷积
         if cnf.ghost_conv:
             layers.update({"project_conv": GhostModule(cnf.expanded_c,
                                                        cnf.out_c,
                                                        kernel_size=1,
                                                        stride=1,
                                                        relu=False)})
+        elif cnf.gs_conv:
+            layers.update({"project_conv": GhostShuffleConv(cnf.expanded_c,
+                                                            cnf.out_c,
+                                                            kernel_size=1,
+                                                            stride=1)})
         else:
             layers.update({"project_conv": ConvBNActivation(cnf.expanded_c,
                                                             cnf.out_c,
@@ -381,21 +540,22 @@ class EfficientNet(nn.Module):
                  classifier_modify: bool = False,
                  attention_type: str = "se",
                  ghost_conv: bool = False,
-                 dynamic_conv: bool = False,
-                 mix_conv: bool = False  # 是否使用混合卷积
+                 use_fused: bool = False,
+                 gs_conv: bool = False,
                  ):
         super(EfficientNet, self).__init__()
 
+        exp_ratio = 4 if use_fused else 6
         # kernel_size, in_channel, out_channel, exp_ratio, strides,
-        # attention_type, use_ghost_conv, use_dynamic_conv, use_mix_conv, drop_connect_rate, repeats
+        # attention_type, use_ghost_conv, use_gs_conv, use_fused , drop_connect_rate, repeats
         default_cnf = [
-            [3, 32, 16, 1, 1, attention_type, ghost_conv, False, mix_conv, drop_rate, 1],  # stage 2
-            [3, 16, 24, 6, 2, attention_type, ghost_conv, False, mix_conv, drop_rate, 2],  # stage 3
-            [5, 24, 40, 6, 2, attention_type, ghost_conv, False, mix_conv, drop_rate, 2],  # stage 4
-            [3, 40, 80, 6, 2, attention_type, ghost_conv, False, False, drop_rate, 3],  # stage 5
-            [5, 80, 112, 6, 1, attention_type, ghost_conv, False, False, drop_rate, 3],  # stage 6
-            [5, 112, 192, 6, 2, attention_type, ghost_conv, dynamic_conv, False, drop_rate, 4],  # stage 7
-            [3, 192, 320, 6, 1, attention_type, ghost_conv, dynamic_conv, False, drop_rate, 1]]  # stage 8
+            [3, 32, 16, 1, 1, attention_type, ghost_conv, gs_conv, use_fused, drop_rate, 1],  # stage 2
+            [3, 16, 24, exp_ratio, 2, attention_type, ghost_conv, gs_conv, use_fused, drop_rate, 2],  # stage 3
+            [5, 24, 40, exp_ratio, 2, attention_type, ghost_conv, gs_conv, use_fused, drop_rate, 2],  # stage 4
+            [3, 40, 80, 6, 2, attention_type, ghost_conv, gs_conv, False, drop_rate, 3],  # stage 5
+            [5, 80, 112, 6, 1, attention_type, ghost_conv, gs_conv, False, drop_rate, 3],  # stage 6
+            [5, 112, 192, 6, 2, attention_type, ghost_conv, gs_conv, False, drop_rate, 4],  # stage 7
+            [3, 192, 320, 6, 1, attention_type, ghost_conv, gs_conv, False, drop_rate, 1]]  # stage 8
 
         def round_repeats(repeats):
             """Round number of repeats based on depth multiplier."""
@@ -502,7 +662,7 @@ class EfficientNet(nn.Module):
 
 
 def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=False, attention_type="se",
-                    ghost_conv=False, dynamic_conv=False, mix_conv=False):
+                    ghost_conv=False, use_fused=False, gs_conv=False):
     # input image size 224x224
     return EfficientNet(width_coefficient=1.0,
                         depth_coefficient=1.0,
@@ -512,8 +672,9 @@ def efficientnet_b0(num_classes=10, activation_layer=nn.SiLU, classifier_modify=
                         classifier_modify=classifier_modify,
                         attention_type=attention_type,
                         ghost_conv=ghost_conv,
-                        dynamic_conv=dynamic_conv,
-                        mix_conv=mix_conv)
+                        use_fused=use_fused,
+                        gs_conv=gs_conv,
+                        )
 
 
 def efficientnet_b1(num_classes=10):

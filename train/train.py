@@ -231,7 +231,7 @@ if __name__ == '__main__':
     parser.add_argument('--lrf', type=float, default=0.01)  # 最终学习率比例
     parser.add_argument('--warmup_lr', type=float, default=1e-6)  # warmup初始学习率
 
-    parser.add_argument('--model_name', type=str, default='cnn')  # cnn cbam coord resnet50 vit
+    parser.add_argument('--model_name', type=str, default='cnn')  # cnn cbam ca resnet50 vit
     # download models weights
     parser.add_argument('--weights', type=str, default='', help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重

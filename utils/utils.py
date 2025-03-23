@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
 
+import contextlib
+import io
 import json
 import os
 import pickle
 import random
 import sys
+import time
 
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from PIL import Image
+from fvcore.nn import FlopCountAnalysis
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from torch.utils.data import Dataset
 from tqdm import tqdm
@@ -433,30 +437,71 @@ def load_latest_model(model, model_name, device):
 
 
 @torch.no_grad()
-def evaluate_model(model, data_loader, device):
+def evaluate_model(model, data_loader, device, input_size=(1, 3, 224, 224), runs_for_flops=True):
     model.eval()
+    model.to(device)
 
     all_preds = []
     all_labels = []
 
+    total_time = 0.0
+    total_images = 0
+
+    # 推理时间计时
     for images, labels in tqdm(data_loader, desc="Evaluating"):
         images, labels = images.to(device), labels.to(device)
-        outputs = model(images)
-        preds = outputs.argmax(dim=1)
 
-        # 保存所有真实标签和预测标签
+        torch.cuda.synchronize() if device == 'cuda' else None
+        start_time = time.time()
+
+        outputs = model(images)
+
+        torch.cuda.synchronize() if device == 'cuda' else None
+        elapsed = time.time() - start_time
+
+        total_time += elapsed
+        total_images += images.size(0)
+
+        preds = outputs.argmax(dim=1)
         all_labels.extend(labels.cpu().numpy())
         all_preds.extend(preds.cpu().numpy())
 
-    # 计算所有指标
+    # ---- 分类指标 ----
     accuracy = accuracy_score(all_labels, all_preds)
     precision = precision_score(all_labels, all_preds, average='macro', zero_division=0)
     recall = recall_score(all_labels, all_preds, average='macro', zero_division=0)
     f1 = f1_score(all_labels, all_preds, average='macro', zero_division=0)
 
-    print("Accuracy: {:.4f}".format(accuracy))  # 整体准确率
-    print("Precision:", precision)  # 计算每个样本的精确率然后求平均值
-    print("Recall:", recall)  # 计算每个样本的召回率然后求平均值
-    print("F1-score:", f1)  # 计算每个样本的F1-score然后求平均值（P、R调和平均数）
+    # ---- 推理速度指标 ----
+    avg_time_per_image = (total_time / total_images) * 1000  # ms
+    fps = total_images / total_time
 
-    return accuracy, precision, recall, f1
+    print("\n📊 Classification Metrics:")
+    print("Accuracy:  {:.4f}".format(accuracy))
+    print("Precision: {:.4f}".format(precision))
+    print("Recall:    {:.4f}".format(recall))
+    print("F1-score:  {:.4f}".format(f1))
+
+    print("\n⏱️ Inference Performance:")
+    print("Average Inference Time: {:.2f} ms/image".format(avg_time_per_image))
+    print("FPS: {:.2f}".format(fps))
+
+    return accuracy, precision, recall, f1, fps, avg_time_per_image
+
+
+def get_model_complexity(model, input_size=(1, 3, 224, 224), device='cpu'):
+    model.eval().to(device)
+    dummy_input = torch.randn(input_size).to(device)
+
+    # 暂时重定向 stderr，避免 aten:: 警告
+    with contextlib.redirect_stderr(io.StringIO()):
+        flops = FlopCountAnalysis(model, dummy_input)
+        total_flops = flops.total()
+
+    total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f"\n⚙️ Model Complexity:")
+    print(f"FLOPs : {total_flops / 1e6:.2f} M FLOPs")
+    print(f"Params: {total_params / 1e6:.2f} M")
+
+    return total_flops / 1e6, total_params / 1e6
