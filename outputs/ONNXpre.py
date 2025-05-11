@@ -9,7 +9,7 @@ from torchvision import transforms
 
 if __name__ == '__main__':
 
-    ort_session = onnxruntime.InferenceSession('ONNX/efficientnet_b0_71.onnx')
+    ort_session = onnxruntime.InferenceSession('ONNX/eca_71.onnx')
     # ort_session = onnxruntime.InferenceSession('ONNX/eca_71.onnx')
     x = torch.randn(1, 3, 224, 224).numpy()
     print(x.shape)
@@ -37,7 +37,8 @@ if __name__ == '__main__':
                              [0.229, 0.224, 0.225])
     ])
 
-    img_path = '../data_set/Plant_data/71/filtered/Grape___healthy/104812.jpg'
+    # img_path = '../data_set/Plant_data/71/filtered/Grape___healthy/104812.jpg'
+    img_path = ''
 
     # 用 pillow 载入
     img_pil = Image.open(img_path)

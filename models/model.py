@@ -54,7 +54,7 @@ def create_model(model_name, num_classes=10):
         return efficientnet_b0(num_classes, attention_type="eca", gs_conv=True)
     elif model_name == "fused":
         return efficientnet_b0(num_classes, attention_type="eca", use_fused=True)
-    elif model_name == "modify":
+    elif model_name == "ghost+fused":
         return efficientnet_b0(num_classes, attention_type="eca", ghost_conv=True, use_fused=True)
     elif model_name == "v2":
         # EfficientNetV2

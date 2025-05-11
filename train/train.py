@@ -38,20 +38,11 @@ def main(args):
     print("data_root=" + data_root)
     train_images_path, train_images_label, \
         test_images_path, test_images_label = read_split_data(data_root)  # 读取数据集，默认使用增强后的数据集
-    img_size = {"B0": 224,
-                "B1": 240,
-                "B2": 260,
-                "B3": 300,
-                "B4": 380,
-                "B5": 456,
-                "B6": 528,
-                "B7": 600}
+    img_size = {"B0": 224, "B1": 240, "B2": 260, "B3": 300, "B4": 380, "B5": 456, "B6": 528, "B7": 600}
     num_model = "B0"
 
     data_transform = {
         "train": transforms.Compose([
-            # transforms.Resize(img_size[num_model] + 32),  # 先调整尺寸
-            # transforms.RandomCrop(img_size[num_model]),  # 让裁剪范围更合理
             transforms.RandomResizedCrop(img_size[num_model]),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
@@ -73,11 +64,7 @@ def main(args):
                              transform=data_transform["test"])
     image_path = os.path.join(data_root, "data_set", "Plant_data")  # 数据集目录
     assert os.path.exists(image_path), "{} path does not exist.".format(image_path)
-    # train_dataset = datasets.ImageFolder(root=os.path.join(
-    # image_path, "train"),transform=data_transform["train"])    # 训练集
     train_num = len(train_dataset)
-    # test_dataset = datasets.ImageFolder(root=os.path.join(
-    # image_path, "test"), transform=data_transform["test"])   # 测试集
     test_num = len(test_dataset)
     print("using {} images for training, {} images fot test.".format(train_num, test_num))
 
@@ -101,7 +88,7 @@ def main(args):
     data, target = next(iter(train_loader))
     print(data.shape)
 
-    # 实例化模型------------------------->>>此部分需要参赛队伍添加，可参照下方的示例代码。
+    # 实例化模型
     model_name = args.model_name
     model = create_model(model_name, num_classes=args.num_classes).to(device)
 
@@ -128,32 +115,12 @@ def main(args):
             else:
                 print("training {}".format(name))
 
-    # distill
-    if args.distill:
-        teacher = timm.create_model('vit_base_patch16_224', num_classes=args.num_classes).to(device)
-        if args.teacher_weights != "":
-            if os.path.exists(args.teacher_weights):
-                weights_dict = torch.load(args.teacher_weights, map_location=device)
-                load_weights_dict = {k: v for k, v in weights_dict.items() if
-                                     teacher.state_dict()[k].numel() == v.numel()}
-                print(teacher.load_state_dict(load_weights_dict, strict=False))
-            else:
-                raise FileNotFoundError(
-                    "not found teacher weights file: {}".format(args.teacher_weights))
-        teacher.eval()  # 固定Teacher
-        # 冻结Teacher权重
-        for param in teacher.parameters():
-            param.requires_grad = False
-
     pg = [p for p in model.parameters() if p.requires_grad]
     if args.optimizer == "SGD":
         optimizer = optim.SGD(pg, lr=args.lr, momentum=0.9, weight_decay=1E-4)  # 优化器
-        # lf = lambda x: ((1 + math.cos(x * math.pi / args.epochs)) / 2) * (1 - args.lrf) + args.lrf  # cosine
-        # scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=lf)
 
     elif args.optimizer == "Adam":
         optimizer = torch.optim.AdamW(pg, lr=args.lr, weight_decay=1e-4)
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs, eta_min=args.lrf * args.lr)
     else:
         raise ValueError("optimizer not support")
 
@@ -225,22 +192,18 @@ if __name__ == '__main__':
     parser.add_argument('--num_classes', type=int, default=71)  # 图像类别
     parser.add_argument('--epochs', type=int, default=100)  # 训练次数
     parser.add_argument('--warmup_epochs', type=int, default=10)  # warmup训练次数
-    parser.add_argument('--batch_size', type=int, default=8)  # 批次大小
-    parser.add_argument('--num_workers', type=int, default=10)  # 使用线程数目
+    parser.add_argument('--batch_size', type=int, default=32)  # 批次大小
+    parser.add_argument('--num_workers', type=int, default=0)  # 使用线程数目
     parser.add_argument('--lr', type=float, default=0.001)  # 初始学习率
     parser.add_argument('--lrf', type=float, default=0.01)  # 最终学习率比例
     parser.add_argument('--warmup_lr', type=float, default=1e-6)  # warmup初始学习率
 
-    parser.add_argument('--model_name', type=str, default='cnn')  # cnn cbam ca resnet50 vit
-    # download models weights
+    parser.add_argument('--model_name', type=str, default='efficientnet_b0')  # cnn cbam ca resnet50 vit
     parser.add_argument('--weights', type=str, default='', help='initial weights path')  # 预训练权重路径
     parser.add_argument('--freeze-layers', type=bool, default=False)  # 是否冻结权重
     parser.add_argument('--device', default='cuda:0', help='device id (i.e. 0 or 0,1 or cpu)')
     parser.add_argument('--cloud', type=bool, default=False)
     parser.add_argument('--optimizer', type=str, default="Adam")  # 优化器
-    # distill
-    parser.add_argument('--distill', action='store_true', default=False, help='use distillation')
-    parser.add_argument('--teacher_weights', type=str, default='')
 
     opt = parser.parse_args()
 

@@ -48,7 +48,7 @@ if __name__ == '__main__':
 
     # 打印并输出CSV
     csv_file_path = "model_evaluation_results_1.csv"
-    headers = ['Model', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'FPS', 'Avg Time (ms)', 'MFLOPs', 'Params (M)']
+    headers = ['Model', 'Accuracy', 'Precision', 'Recall', 'F1-score', 'M FLOPs', 'Params (M)']
 
     with open(csv_file_path, "w", newline='', encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
@@ -60,8 +60,8 @@ if __name__ == '__main__':
                 f"{float(res[2]):.4f}",  # precision
                 f"{float(res[3]):.4f}",  # recall
                 f"{float(res[4]):.4f}",  # f1
-                f"{float(res[5]):.2f}",  # fps
-                f"{float(res[6]):.2f}",  # avg_time_ms
+                # f"{float(res[5]):.2f}",  # fps
+                # f"{float(res[6]):.2f}",  # avg_time_ms
                 f"{float(res[7]):.2f}",  # flops
                 f"{float(res[8]):.2f}"  # params
             ])
